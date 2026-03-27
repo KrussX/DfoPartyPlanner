@@ -42,6 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
     const refreshScoresBtn = document.getElementById('refresh-scores-btn');
 
+    // Confirm Modal Elements
+    const confirmModal = document.getElementById('confirm-modal');
+    const modalMessage = document.getElementById('modal-message');
+    const modalConfirmBtn = document.getElementById('modal-confirm');
+    const modalCancelBtn = document.getElementById('modal-cancel');
+
     // --- Toggle Search ---
     toggleSearchBtn.addEventListener('click', () => {
         if (searchContent.style.display === 'none') {
@@ -121,22 +127,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Global Controls (Export / Import / Clear) ---
     clearBtn.addEventListener('click', () => {
-        partyPlan.clear();
-        hiddenCharacters.clear();
-        raids.length = 0;
-        raidCounter = 0;
-        updateAllViews();
-        if (currentSearchResults.length > 0) {
-            renderResultCards(currentSearchResults);
-        } else {
-            document.getElementById('search-results').innerHTML = '';
-        }
+        showConfirm('Are you sure you want to clear EVERYTHING? This will remove all characters and all raids.', () => {
+            partyPlan.clear();
+            hiddenCharacters.clear();
+            raids.length = 0;
+            raidCounter = 0;
+            updateAllViews();
+            if (currentSearchResults.length > 0) {
+                renderResultCards(currentSearchResults);
+            } else {
+                document.getElementById('search-results').innerHTML = '';
+            }
+        }, 'Clear Everything', 'danger');
     });
 
     clearRaidsBtn.addEventListener('click', () => {
-        raids.length = 0;
-        raidCounter = 0;
-        updateAllViews();
+        showConfirm('Are you sure you want to clear all raids?', () => {
+            raids.length = 0;
+            raidCounter = 0;
+            updateAllViews();
+        }, 'Clear Raids', 'primary');
     });
 
     exportJsonBtn.addEventListener('click', async () => {
@@ -422,11 +432,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // Remove raid
         if (e.target.classList.contains('raid-remove-btn')) {
             const rId = parseInt(e.target.dataset.raidId);
-            const idx = raids.findIndex(r => r.id === rId);
-            if (idx !== -1) {
-                raids.splice(idx, 1);
-                updateAllViews();
-            }
+            const raid = raids.find(r => r.id === rId);
+            const raidName = raid ? (raid.name || `#${rId}`) : 'this raid';
+            
+            showConfirm(`Are you sure you want to remove ${raidName}?`, () => {
+                const idx = raids.findIndex(r => r.id === rId);
+                if (idx !== -1) {
+                    raids.splice(idx, 1);
+                    updateAllViews();
+                }
+            }, 'Remove Raid', 'primary');
             return;
         }
 
@@ -453,6 +468,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Helpers ---
+    function showConfirm(message, onConfirm, confirmText = 'Confirm', type = 'primary') {
+        modalMessage.textContent = message;
+        modalConfirmBtn.textContent = confirmText;
+        modalConfirmBtn.className = `btn btn-${type}`;
+        confirmModal.style.display = 'flex';
+
+        const handleConfirm = () => {
+            onConfirm();
+            close();
+        };
+
+        const handleCancel = () => close();
+
+        const close = () => {
+            confirmModal.style.display = 'none';
+            modalConfirmBtn.removeEventListener('click', handleConfirm);
+            modalCancelBtn.removeEventListener('click', handleCancel);
+        };
+
+        modalConfirmBtn.addEventListener('click', handleConfirm);
+        modalCancelBtn.addEventListener('click', handleCancel);
+    }
+
     function showToast(message, type = 'error') {
         const container = document.getElementById('toast-container');
         if (!container) return;
