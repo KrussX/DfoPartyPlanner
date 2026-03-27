@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DFO Party Planner</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="description" content="A compact, efficient tool to plan your Dungeon Fighter Online raid compositions.">
+    <meta name="theme-color" content="#ffffff">
+</head>
+
+<body>
+    <div class="app-layout">
+        <!-- TOP TOOLBAR -->
+        <header class="toolbar">
+            <div style="display: flex; flex-direction: column;">
+                <h1 class="toolbar-title" style="margin-bottom: 0;">DFO Raid Planner</h1>
+                <a href="https://dfogang.com" target="_blank" rel="noopener noreferrer" style="font-size: 0.65rem; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px;">Powered by dfogang.com</a>
+            </div>
+            <div class="toolbar-controls">
+                <label class="toolbar-label">EC Limit:
+                    <input type="number" id="global-club-limit" placeholder="∞" min="1" max="50">
+                </label>
+                <label class="toolbar-label checkbox-label" style="display: flex; align-items: center; gap: 0.3rem;">
+                    <input type="checkbox" id="dps-sader-buffer-toggle" checked style="width: auto;">
+                    Priest(M) DPS = Buffer
+                </label>
+                <select id="raid-size-select">
+                    <option value="4">4 Players</option>
+                    <option value="8">8 Players</option>
+                    <option value="12" selected>12 Players</option>
+                </select>
+                <button type="button" class="btn" id="add-raid-btn">Add Raid</button>
+                <button type="button" class="btn btn-accent" id="auto-plan-btn">Auto assign DPS</button>
+                <button type="button" class="btn" id="refresh-scores-btn">Refresh scores</button>
+                <span class="toolbar-sep"></span>
+                <button type="button" class="btn btn-sm" id="export-json-btn">Export Planner</button>
+                <button type="button" class="btn btn-sm" id="import-json-btn">Import Planner</button>
+                <input type="file" id="import-file-input" accept=".json" style="display: none;">
+                <button type="button" class="btn btn-sm" id="clear-raids-btn">Clear Raids</button>
+                <button type="button" class="btn btn-sm btn-danger" id="clear-btn">Clear Everything</button>
+                <span class="toolbar-sep"></span>
+                <button type="button" class="btn btn-sm" id="theme-toggle-btn">🌙 Dark</button>
+            </div>
+        </header>
+
+        <!-- MAIN SPLIT LAYOUT -->
+        <div class="main-panels">
+            <!-- LEFT PANEL: Search + Roster Pool -->
+            <aside class="panel-left">
+                <div class="panel-section">
+                    <div class="section-header" id="search-toggle-header">
+                        <span class="section-title">Explorer Club Search</span>
+                        <button type="button" class="btn-collapse" id="toggle-search-btn">▾</button>
+                    </div>
+                    <div id="search-content">
+                        <form class="search-form" id="search-form" autocomplete="off">
+                            <input type="text" id="explorer-club-name" placeholder="Explorer Club Name" required>
+                            <div class="form-row-compact">
+                                <input type="number" id="min-dps" placeholder="Min DPS (M)" min="0" step="any">
+                                <input type="number" id="min-buff" placeholder="Min Buff (M)" min="0" step="any">
+                            </div>
+                            <button type="submit" class="btn btn-primary" id="search-btn">
+                                <span class="btn-text">Search</span>
+                                <span class="btn-loader" id="search-loader" style="display:none;">⏳</span>
+                            </button>
+                        </form>
+                        <div class="search-status" id="search-status"></div>
+                        <div class="search-results" id="search-results"></div>
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <div class="section-header">
+                        <span class="section-title">Roster Pool</span>
+                        <span class="pool-count" id="pool-count"></span>
+                    </div>
+                    <div id="club-summary-container" class="club-summary" style="display: none;">
+                        <div id="club-summary-list"></div>
+                    </div>
+                    <div class="pool-list party-list" id="party-list">
+                        <p class="no-results" id="empty-party-msg">Click characters from search results to add them.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- RIGHT PANEL: Raids -->
+            <main class="panel-right">
+                <div id="raids-container" class="raids-container">
+                    <div class="empty-raids-msg">
+                        <p>No raids yet. Click <strong>+ Raid</strong> or <strong>⚡ Auto</strong> to get started.</p>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
