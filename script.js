@@ -441,6 +441,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    raidsContainer.addEventListener('change', (e) => {
+        if (e.target.classList.contains('raid-title-input')) {
+            const rId = parseInt(e.target.dataset.raidId);
+            const raid = raids.find(r => r.id === rId);
+            if (raid) {
+                raid.name = e.target.value.trim();
+                saveState();
+            }
+        }
+    });
+
     // --- Helpers ---
     function showToast(message, type = 'error') {
         const container = document.getElementById('toast-container');
@@ -636,7 +647,7 @@ document.addEventListener('DOMContentLoaded', () => {
             scoreDisplay = 'DPS MODE';
         }
 
-        const removeBtnStr = '<button class="remove-btn" title="Remove" aria-label="Remove">×</button>';
+        const removeBtnStr = currentSlotId === 'search' ? '' : '<button class="remove-btn" title="Remove" aria-label="Remove">×</button>';
 
         return `
             <div class="result-card ${isBuffer ? 'buffer' : 'dealer'} ${isSelected ? 'selected' : ''}" 
@@ -709,7 +720,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             raidBlock.innerHTML = `
                 <div class="raid-header">
-                    <h3 class="raid-title">#${rIndex + 1}</h3>
+                    <input type="text" class="raid-title-input" 
+                           value="${raid.name || '#' + (rIndex + 1)}" 
+                           placeholder="#${rIndex + 1}" 
+                           data-raid-id="${raid.id}"
+                           spellcheck="false">
                     <button class="raid-remove-btn" title="Remove Raid" data-raid-id="${raid.id}">×</button>
                 </div>
                 <div class="raid-parties">

@@ -618,6 +618,33 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
+/* ---- RAID HEADERS & TITLES ---- */
+.raid-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.raid-title-input {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin-left: -6px;
+    width: 250px;
+    transition: background 0.2s, border-color 0.2s;
+    font-family: inherit;
+}
+.raid-title-input:hover, .raid-title-input:focus {
+    background: var(--bg);
+    border-color: var(--border);
+    outline: none;
+}
+
 /* ---- RESPONSIVE ---- */
 @media (max-width: 768px) {
     .main-panels { flex-direction: column; }
