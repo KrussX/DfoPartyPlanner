@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const clearBtn = document.getElementById('clear-btn');
     const clearRaidsBtn = document.getElementById('clear-raids-btn');
     const exportJsonBtn = document.getElementById('export-json-btn');
+    const exportExcelBtn = document.getElementById('export-excel-btn');
     const importJsonBtn = document.getElementById('import-json-btn');
     const importFileInput = document.getElementById('import-file-input');
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
@@ -199,6 +200,242 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(dlAnchorElem);
             URL.revokeObjectURL(url);
         }, 500);
+    });
+
+    exportExcelBtn.addEventListener('click', () => {
+        if (raids.length === 0) {
+            alert('No raids to export.');
+            return;
+        }
+
+        const wb = XLSX.utils.book_new();
+        const ws_data = [];
+        const merges = [];
+
+        const numRaids = raids.length;
+        const leftCount = Math.ceil(numRaids / 2);
+
+        let leftRow = 0;
+        let rightRow = 0;
+
+        function setCell(r, c, val, style, type = 's', format = undefined) {
+            if (!ws_data[r]) ws_data[r] = [];
+            const cell = { v: val, t: type, s: style };
+            if (format) cell.z = format;
+            ws_data[r][c] = cell;
+        }
+
+        raids.forEach((raid, rIndex) => {
+            const isRight = rIndex >= leftCount;
+            let currentRow = isRight ? rightRow : leftRow;
+            const startCol = isRight ? 4 : 0; // Col 0 or Col 4
+
+            const raidName = raid.name || `Raid ${rIndex + 1}`;
+            
+            // Raid Title Array Merge
+            merges.push({ s: { r: currentRow, c: startCol }, e: { r: currentRow, c: startCol + 2 } });
+            
+            const titleStyle = { 
+                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 16 },
+                fill: { fgColor: { rgb: "333333" } },
+                alignment: { vertical: "center" }
+            };
+            setCell(currentRow, startCol, raidName, titleStyle);
+            setCell(currentRow, startCol + 1, "", titleStyle);
+            setCell(currentRow, startCol + 2, "", titleStyle);
+            currentRow++;
+
+            // Headers
+            const headerStyle = {
+                font: { color: { rgb: "FFFFFF" } },
+                fill: { fgColor: { rgb: "595959" } }
+            };
+            setCell(currentRow, startCol, "Explorer club", headerStyle);
+            setCell(currentRow, startCol + 1, "Char", headerStyle);
+            setCell(currentRow, startCol + 2, "DPS or buffer score (dfogang)", headerStyle);
+            currentRow++;
+
+            let raidSum = 0;
+
+            // Parties
+            const colors = [
+                { rgb: "C00000" }, // Red
+                { rgb: "FFFF00" }, // Yellow
+                { rgb: "00B050" }  // Green
+            ];
+            const textColors = [
+                { rgb: "FFFFFF" }, // White text on Red
+                { rgb: "000000" }, // Black text on Yellow
+                { rgb: "FFFFFF" }  // White text on Green
+            ];
+
+            raid.parties.forEach((party, pIndex) => {
+                const bgFill = colors[pIndex] || { rgb: "CCCCCC" };
+                const fontColor = textColors[pIndex] || { rgb: "000000" };
+                const rowStyle = {
+                    fill: { fgColor: bgFill },
+                    font: { color: fontColor }
+                };
+
+                for (let sIdx = 0; sIdx < 4; sIdx++) {
+                    const charId = party.slots[sIdx];
+                    let ec = "";
+                    let nameJob = "";
+                    let scoreVal = null;
+                    let isDpsSader = false;
+
+                    if (charId && partyPlan.has(charId)) {
+                        const char = partyPlan.get(charId);
+                        ec = char.adventureName || "?";
+                        nameJob = `${char.characterName}`;
+                        if (char.total_buff_score != null) {
+                            scoreVal = char.total_buff_score;
+                        } else if (char.dps && char.dps.normal) {
+                            scoreVal = char.dps.normal;
+                        }
+                        
+                        if (char._isDpsSader) {
+                            isDpsSader = true;
+                        }
+                        raidSum += (scoreVal || 0);
+                    }
+
+                    setCell(currentRow, startCol, ec, rowStyle);
+                    setCell(currentRow, startCol + 1, nameJob, rowStyle);
+                    
+                    if (charId) {
+                        if (isDpsSader) {
+                            // Show DPS MODE
+                            setCell(currentRow, startCol + 2, "DPS MODE", rowStyle);
+                        } else {
+                            // Format number
+                            setCell(currentRow, startCol + 2, scoreVal, rowStyle, 'n', '#,##0');
+                        }
+                    } else {
+                        setCell(currentRow, startCol + 2, "", rowStyle);
+                    }
+                    currentRow++;
+                }
+            });
+
+            // Total Row
+            const totalStyle = { 
+                fill: { fgColor: { rgb: "404040" } }, 
+                font: { bold: true, color: { rgb: "FFFFFF" } }
+            };
+            setCell(currentRow, startCol, "", totalStyle);
+            setCell(currentRow, startCol + 1, "", totalStyle);
+            setCell(currentRow, startCol + 2, raidSum, totalStyle, 'n', '#,##0');
+            currentRow++;
+
+            // Blank Row space
+            currentRow++;
+
+            if (isRight) {
+                rightRow = currentRow;
+            } else {
+                leftRow = currentRow;
+            }
+        });
+
+        // --- UNASSIGNED ROW GENERATOR ---
+        let maxRow = Math.max(leftRow, rightRow) + 2;
+
+        const assignedIds = getAssignedChars();
+        const unassignedChars = [];
+
+        partyPlan.forEach((charData, charId) => {
+            if (!assignedIds.has(charId)) {
+                unassignedChars.push(charData);
+            }
+        });
+
+        if (unassignedChars.length > 0) {
+            unassignedChars.sort((a, b) => {
+                const getScore = (c) => c.total_buff_score != null ? c.total_buff_score : (c.dps && c.dps.normal ? c.dps.normal : 0);
+                return getScore(b) - getScore(a); // Descending score
+            });
+
+            const unassignedTitleStyle = { 
+                font: { bold: true, color: { rgb: "FFFFFF" }, sz: 14 },
+                fill: { fgColor: { rgb: "333333" } },
+                alignment: { vertical: "center" }
+            };
+            
+            merges.push({ s: { r: maxRow, c: 0 }, e: { r: maxRow, c: 2 } });
+            setCell(maxRow, 0, "Unassigned Pool", unassignedTitleStyle);
+            setCell(maxRow, 1, "", unassignedTitleStyle);
+            setCell(maxRow, 2, "", unassignedTitleStyle);
+            maxRow++;
+
+            const headerStyle = {
+                font: { color: { rgb: "FFFFFF" } },
+                fill: { fgColor: { rgb: "595959" } }
+            };
+            setCell(maxRow, 0, "Explorer club", headerStyle);
+            setCell(maxRow, 1, "Char", headerStyle);
+            setCell(maxRow, 2, "DPS or buffer score (dfogang)", headerStyle);
+            maxRow++;
+
+            const emptyStyle = { font: { color: { rgb: "000000"} } };
+
+            unassignedChars.forEach(char => {
+                const ec = char.adventureName || "?";
+                const name = char.characterName;
+                let scoreVal = null;
+                let isDpsSader = false;
+                
+                if (char.total_buff_score != null) {
+                    scoreVal = char.total_buff_score;
+                } else if (char.dps && char.dps.normal) {
+                    scoreVal = char.dps.normal;
+                }
+                if (char._isDpsSader) {
+                    isDpsSader = true;
+                }
+
+                setCell(maxRow, 0, ec, emptyStyle);
+                setCell(maxRow, 1, name, emptyStyle);
+                
+                if (isDpsSader) {
+                    setCell(maxRow, 2, "DPS MODE", emptyStyle);
+                } else {
+                    setCell(maxRow, 2, scoreVal, emptyStyle, 'n', '#,##0');
+                }
+                maxRow++;
+            });
+        }
+
+        // Ensure all rows are arrays even if empty
+        for (let i = 0; i < maxRow; i++) {
+            if (!ws_data[i]) ws_data[i] = [];
+            // Fill entirely to avoid sparse array issues in parsing
+            for (let j = 0; j <= 6; j++) {
+                if (!ws_data[i][j]) ws_data[i][j] = { v: "", t: "s" };
+            }
+        }
+
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+        ws['!merges'] = merges;
+        ws['!cols'] = [
+            { wch: 18 }, // A: Explorer club
+            { wch: 35 }, // B: Char
+            { wch: 30 }, // C: DPS
+            { wch: 3  }, // D: Spacer
+            { wch: 18 }, // E: Explorer club
+            { wch: 35 }, // F: Char
+            { wch: 30 }  // G: DPS
+        ];
+
+        XLSX.utils.book_append_sheet(wb, ws, "Raids");
+
+        const date = new Date();
+        const yyyy = date.getFullYear();
+        const mm = String(date.getMonth() + 1).padStart(2, '0');
+        const dd = String(date.getDate()).padStart(2, '0');
+        const filename = `raid_roster_${yyyy}-${mm}-${dd}.xlsx`;
+
+        XLSX.writeFile(wb, filename);
     });
 
     importJsonBtn.addEventListener('click', () => {
