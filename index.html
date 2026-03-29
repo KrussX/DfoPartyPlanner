@@ -10,6 +10,12 @@
     <meta name="description" content="A compact, efficient tool to plan your Dungeon Fighter Online raid compositions.">
     <meta name="theme-color" content="#ffffff">
     <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.min.js"></script>
+
+    <!-- Firebase SDKs (compat v9) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="firebase-config.js"></script>
 </head>
 
 <body>
@@ -18,9 +24,17 @@
         <header class="toolbar">
             <div style="display: flex; flex-direction: column;">
                 <h1 class="toolbar-title" style="margin-bottom: 0;">DFO Raid Planner</h1>
-                <a href="https://dfogang.com" target="_blank" rel="noopener noreferrer" style="font-size: 0.65rem; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px;">Powered by dfogang.com</a>
+                <a href="https://dfogang.com" target="_blank" rel="noopener noreferrer"
+                    style="font-size: 0.65rem; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px;">Powered
+                    by dfogang.com</a>
             </div>
             <div class="toolbar-controls">
+                <div
+                    style="display: flex; align-items: center; gap: 0.5rem; border-right: 1px solid var(--border); padding-right: 0.5rem; margin-right: 0.5rem;">
+                    <span id="user-display" style="font-size: 0.8rem; font-weight: 600; color: var(--text);"></span>
+                    <button type="button" class="btn btn-sm btn-danger" id="logout-btn"
+                        style="padding: 0.15rem 0.4rem; font-size: 0.65rem;">Logout</button>
+                </div>
                 <label class="toolbar-label">EC Limit:
                     <input type="number" id="global-club-limit" placeholder="∞" min="1" max="50">
                 </label>
@@ -28,22 +42,24 @@
                     <input type="checkbox" id="dps-sader-buffer-toggle" checked style="width: auto;">
                     Priest(M) DPS = Buffer
                 </label>
-                <select id="raid-size-select">
+                <select id="raid-size-select" class="admin-only">
                     <option value="4">4 Players</option>
                     <option value="8">8 Players</option>
                     <option value="12" selected>12 Players</option>
                 </select>
-                <button type="button" class="btn" id="add-raid-btn">Add Raid</button>
-                <button type="button" class="btn btn-accent" id="auto-plan-btn">Auto assign DPS</button>
+                <button type="button" class="btn admin-only" id="add-raid-btn">Add Raid</button>
+                <button type="button" class="btn btn-accent admin-only" id="auto-plan-btn">Auto assign DPS</button>
                 <button type="button" class="btn" id="refresh-scores-btn">Refresh scores</button>
                 <span class="toolbar-sep"></span>
                 <button type="button" class="btn btn-sm" id="export-json-btn">Export Planner</button>
                 <button type="button" class="btn btn-sm btn-accent" id="export-excel-btn">Export Excel</button>
-                <button type="button" class="btn btn-sm" id="import-json-btn">Import Planner</button>
+                <button type="button" class="btn btn-sm admin-only" id="import-json-btn">Import Planner</button>
                 <input type="file" id="import-file-input" accept=".json" style="display: none;">
-                <button type="button" class="btn btn-sm" id="clear-raids-btn">Clear Raids</button>
-                <button type="button" class="btn btn-sm btn-danger" id="clear-btn">Clear Everything</button>
+                <button type="button" class="btn btn-sm admin-only" id="clear-raids-btn">Clear raids</button>
+                <button type="button" class="btn btn-sm btn-danger admin-only" id="clear-btn">Clear everything</button>
                 <span class="toolbar-sep"></span>
+                <button type="button" class="btn btn-sm" id="history-btn">History log</button>
+                <button type="button" class="btn btn-sm" id="copy-link-btn">🔗 Copy Room link</button>
                 <button type="button" class="btn btn-sm" id="theme-toggle-btn">🌙 Dark</button>
             </div>
         </header>
@@ -92,7 +108,8 @@
             <main class="panel-right">
                 <div id="raids-container" class="raids-container">
                     <div class="empty-raids-msg">
-                        <p>No raids yet. Click <strong>+ Raid</strong> or <strong>⚡ Auto</strong> to get started.</p>
+                        <p>No raids yet. Click <strong>Add Raid</strong> or <strong>Auto assign DPS</strong> to get
+                            started.</p>
                     </div>
                 </div>
             </main>
@@ -102,8 +119,30 @@
     <!-- TOAST CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="script.js"></script>
-    
+    <!-- HISTORY SIDEBAR -->
+    <div id="history-sidebar" class="history-sidebar">
+        <div class="history-header">
+            <h3>Action History</h3>
+            <button class="btn-close" id="close-history-btn">×</button>
+        </div>
+        <div class="history-content" id="history-list">
+            <p class="history-empty">No actions recorded yet.</p>
+        </div>
+    </div>
+
+    <!-- LANDING PAGE OVERLAY -->
+    <div id="landing-overlay" class="landing-overlay">
+        <div class="landing-card">
+            <h2 id="landing-title">DFO Raid Planner</h2>
+            <p id="landing-subtitle">Welcome! Please enter your name to continue.</p>
+            <form id="landing-form">
+                <input type="text" id="landing-name-input" placeholder="Your Name" required autocomplete="off"
+                    maxlength="20">
+                <button type="submit" class="btn btn-primary" id="landing-submit-btn">Continue</button>
+            </form>
+        </div>
+    </div>
+
     <!-- CONFIRMATION MODAL -->
     <div id="confirm-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content">
@@ -115,6 +154,8 @@
             </div>
         </div>
     </div>
+
+    <script src="script.js"></script>
 </body>
 
 </html>

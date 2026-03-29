@@ -1,17 +1,93 @@
 /**
  * DFO Party Planner - Logic
- * Minimal client-side JS handling slot selection.
+ * Collaborative via Firebase Firestore.
  */
 document.addEventListener('DOMContentLoaded', () => {
-    // --- State Management ---
-    const partyPlan = new Map(); // characterId -> charData
-    const hiddenCharacters = new Set(); // set of characterIds
-    let currentSearchResults = [];
+    // --- Firebase Init ---
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
 
+    // --- Room ID (from URL hash, e.g. site.com/#abc123) ---
+    function generateRoomId() {
+        return Math.random().toString(36).substring(2, 8) +
+               Math.random().toString(36).substring(2, 8);
+    }
+
+    let roomId = window.location.hash.replace('#', '');
+    let roomRef = null;
+    let userName = sessionStorage.getItem('dfoUserName');
+    
+    const landingOverlay = document.getElementById('landing-overlay');
+    const landingForm = document.getElementById('landing-form');
+    const landingNameInput = document.getElementById('landing-name-input');
+    const landingSubtitle = document.getElementById('landing-subtitle');
+    const landingSubmitBtn = document.getElementById('landing-submit-btn');
+    const appLayout = document.querySelector('.app-layout');
+    const userDisplay = document.getElementById('user-display');
+    const logoutBtn = document.getElementById('logout-btn');
+
+    if (userName && userDisplay) {
+        userDisplay.textContent = '👤 ' + userName;
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            sessionStorage.removeItem('dfoUserName');
+            window.location.reload();
+        });
+    }
+
+    if (!userName) {
+        appLayout.style.display = 'none';
+        landingOverlay.style.display = 'flex';
+        
+        if (!roomId) {
+            landingSubtitle.textContent = "Welcome! Please enter your name to create a room.";
+            landingSubmitBtn.textContent = "Create Room";
+        } else {
+            landingSubtitle.textContent = "You've been invited! Enter your name to join the room.";
+            landingSubmitBtn.textContent = "Join Room";
+        }
+
+        landingForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = landingNameInput.value.trim();
+            if (!name) return;
+            sessionStorage.setItem('dfoUserName', name);
+            userName = name;
+            
+            if (!roomId) {
+                roomId = generateRoomId();
+                window.location.hash = roomId;
+            }
+            
+            if (userDisplay) {
+                userDisplay.textContent = '👤 ' + userName;
+            }
+            
+            landingOverlay.style.display = 'none';
+            appLayout.style.display = 'flex';
+            initApp();
+        });
+    } else {
+        if (!roomId) {
+            roomId = generateRoomId();
+            window.location.hash = roomId;
+        }
+        initApp();
+    }
+
+    // --- Shared State ---
+    const partyPlan = new Map(); // characterId -> charData
+    const hiddenCharacters = new Set(); // local only (search result hide)
+    let currentSearchResults = [];
     let raidCounter = 0;
-    const raids = []; // Array of { id, size, parties: [] }
+    const raids = [];
     let draggedCardId = null;
     let sourceSlotId = null;
+    let isAdmin = false;
+    let isWriting = false; // Prevents snapshot re-renders from our own writes
 
     // --- DOM Elements ---
     const searchForm = document.getElementById('search-form');
@@ -42,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const importFileInput = document.getElementById('import-file-input');
     const themeToggleBtn = document.getElementById('theme-toggle-btn');
     const refreshScoresBtn = document.getElementById('refresh-scores-btn');
+    const copyLinkBtn = document.getElementById('copy-link-btn');
 
     // Confirm Modal Elements
     const confirmModal = document.getElementById('confirm-modal');
@@ -60,7 +137,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Theme Toggle ---
+    // --- Theme Toggle (local only) ---
     function applyTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         themeToggleBtn.textContent = theme === 'dark' ? '☀️ Light' : '🌙 Dark';
@@ -75,65 +152,233 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(current === 'dark' ? 'light' : 'dark');
     });
 
-    // --- State Persistence (LocalStorage) ---
-    function saveState() {
-        const state = {
-            partyPlan: Array.from(partyPlan.entries()),
-            hiddenCharacters: Array.from(hiddenCharacters),
-            raids: raids,
-            raidCounter: raidCounter,
-            globalClubLimit: globalClubLimitInput.value
-        };
-        localStorage.setItem('dfoRaidPlannerState', JSON.stringify(state));
+    // --- Copy Link ---
+    copyLinkBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(window.location.href).then(() => {
+            showToast('Room link copied to clipboard!', 'success');
+        }).catch(() => {
+            prompt('Copy this link to share the room:', window.location.href);
+        });
+    });
+
+    // --- Firestore: Apply incoming state to local vars + re-render ---
+    function applyState(data) {
+        partyPlan.clear();
+        if (data.partyPlan) {
+            if (Array.isArray(data.partyPlan)) {
+                // Legacy json format fallback
+                data.partyPlan.forEach(([id, charData]) => partyPlan.set(id, charData));
+            } else {
+                Object.entries(data.partyPlan).forEach(([id, charData]) => partyPlan.set(id, charData));
+            }
+        }
+        raids.length = 0;
+        if (data.raids) {
+            data.raids.forEach(r => raids.push(r));
+        }
+        raidCounter = data.meta ? (data.meta.raidCounter || 0) : 0;
+        if (data.meta) {
+            if (data.meta.globalClubLimit !== undefined) {
+                globalClubLimitInput.value = data.meta.globalClubLimit;
+            }
+            if (data.meta.dpsSaderBuffer !== undefined) {
+                document.getElementById('dps-sader-buffer-toggle').checked = data.meta.dpsSaderBuffer;
+            }
+            if (data.meta.raidSize !== undefined) {
+                raidSizeSelect.value = data.meta.raidSize;
+            }
+        }
+        
+        if (data.history) {
+            renderHistory(data.history);
+        }
+
+        updateAllViews();
     }
 
-    function loadState() {
-        const saved = localStorage.getItem('dfoRaidPlannerState');
-        if (saved) {
-            try {
-                const state = JSON.parse(saved);
-                partyPlan.clear();
-                if (state.partyPlan) {
-                    state.partyPlan.forEach(([id, data]) => partyPlan.set(id, data));
+    // --- Firestore: Write shared state ---
+    async function savePartyPlan() {
+        isWriting = true;
+        try {
+            const planObj = {};
+            partyPlan.forEach((val, key) => planObj[key] = val);
+            await roomRef.update({ partyPlan: planObj });
+        } catch(e) { console.error('savePartyPlan failed', e); }
+        setTimeout(() => { isWriting = false; }, 500);
+    }
+
+    async function saveRaids() {
+        isWriting = true;
+        try {
+            await roomRef.update({ raids: raids });
+        } catch(e) { console.error('saveRaids failed', e); }
+        setTimeout(() => { isWriting = false; }, 500);
+    }
+
+    async function saveMeta() {
+        if (!isAdmin) return;
+        isWriting = true;
+        try {
+            await roomRef.update({
+                meta: {
+                    adminName: userName,
+                    raidCounter,
+                    globalClubLimit: globalClubLimitInput.value,
+                    dpsSaderBuffer: document.getElementById('dps-sader-buffer-toggle').checked,
+                    raidSize: raidSizeSelect.value
                 }
-                hiddenCharacters.clear();
-                if (state.hiddenCharacters) {
-                    state.hiddenCharacters.forEach(id => hiddenCharacters.add(id));
-                }
-                raids.length = 0;
-                if (state.raids) {
-                    state.raids.forEach(r => {
-                        // Migrate old format { dps1, dps2, dps3, buff } to { slots: [] }
-                        if (r.parties && r.parties.length > 0 && !r.parties[0].slots) {
-                            r.parties = r.parties.map(p => ({
-                                slots: [p.dps1 || null, p.dps2 || null, p.dps3 || null, p.buff || null]
-                            }));
-                        }
-                        raids.push(r);
-                    });
-                }
-                raidCounter = state.raidCounter || 0;
-                if (state.globalClubLimit !== undefined) {
-                    globalClubLimitInput.value = state.globalClubLimit;
-                }
-                updateAllViews();
-            } catch (e) { console.error('Failed to load state', e); }
+            });
+        } catch(e) { console.error('saveMeta failed', e); }
+        setTimeout(() => { isWriting = false; }, 500);
+    }
+
+    // Legacy saveState: calls targeted saves. Used by updateAllViews.
+    function saveState() {
+        savePartyPlan();
+        saveRaids();
+    }
+
+    // --- Firestore: Subscribe to real-time updates ---
+    function subscribeToRoom() {
+        roomRef.onSnapshot((doc) => {
+            if (!doc.exists) return;
+            const data = doc.data();
+
+            // Always render history so it is instantly live for everyone including the writer
+            if (data.history) {
+                renderHistory(data.history);
+            }
+
+            if (isWriting) return; // Skip re-render of the main board from our own writes
+            applyState(data);
+        }, (err) => {
+            console.error('Firestore snapshot error:', err);
+        });
+    }
+
+    // --- History Logic ---
+    async function logAction(action, details) {
+        if (!roomRef) return;
+        const entry = {
+            id: Date.now() + Math.random(),
+            time: Date.now(),
+            user: userName,
+            action,
+            details,
+            isAdmin
+        };
+        try {
+            await roomRef.update({
+                history: firebase.firestore.FieldValue.arrayUnion(entry)
+            });
+        } catch (e) {
+            console.error('History log failed', e);
         }
     }
 
+    function renderHistory(historyArray) {
+        const list = document.getElementById('history-list');
+        if (!historyArray || historyArray.length === 0) {
+            list.innerHTML = '<p class="history-empty">No actions recorded yet.</p>';
+            return;
+        }
+
+        let html = '';
+        // Sort newest first
+        const sorted = [...historyArray].sort((a, b) => b.time - a.time);
+        
+        sorted.forEach(item => {
+            const date = new Date(item.time);
+            const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const adminTag = item.isAdmin ? '<span style="color:var(--accent-blue)">[Admin]</span> ' : '';
+            
+            html += `
+                <div class="history-item ${item.isAdmin ? 'admin' : ''}">
+                    <div class="hist-time">${timeStr}</div>
+                    <div><span class="hist-user">${adminTag}${item.user}</span> ${item.details}</div>
+                </div>
+            `;
+        });
+        list.innerHTML = html;
+    }
+
+    const historySidebar = document.getElementById('history-sidebar');
+    const closeHistoryBtn = document.getElementById('close-history-btn');
+    const historyBtn = document.getElementById('history-btn');
+
+    historyBtn.addEventListener('click', () => { historySidebar.classList.add('open'); });
+    closeHistoryBtn.addEventListener('click', () => { historySidebar.classList.remove('open'); });
+
+    // --- Auth + Room Init ---
+    function initApp() {
+        roomRef = db.collection('rooms').doc(roomId);
+
+        auth.signInAnonymously().then(async (cred) => {
+            const uid = cred.user.uid;
+
+            // Check if room exists
+            const snap = await roomRef.get();
+            if (!snap.exists) {
+                // New room — current user is the admin
+                const initialState = {
+                    meta: {
+                        adminName: userName,
+                        raidCounter: 0,
+                        globalClubLimit: '',
+                        dpsSaderBuffer: true,
+                        raidSize: '12'
+                    },
+                    partyPlan: {},
+                    raids: [],
+                    history: [{ 
+                        id: Date.now(), time: Date.now(), user: 'System', 
+                        action: 'created_room', details: `${userName} created the room.` 
+                    }]
+                };
+                await roomRef.set(initialState);
+                isAdmin = true;
+            } else {
+                const data = snap.data();
+                isAdmin = data.meta && data.meta.adminName === userName;
+                logAction('joined_room', `joined the room.`);
+            }
+
+            // Show/hide admin elements and disable read-only settings for members
+            document.querySelectorAll('.admin-only').forEach(el => {
+                el.style.display = isAdmin ? '' : 'none';
+            });
+            globalClubLimitInput.disabled = !isAdmin;
+            globalClubLimitInput.title = isAdmin ? 'Global Explorer Club Limit' : 'Only admins can change this setting';
+            globalClubLimitInput.style.cursor = isAdmin ? 'auto' : 'not-allowed';
+            
+            const dpsToggle = document.getElementById('dps-sader-buffer-toggle');
+            dpsToggle.disabled = !isAdmin;
+            dpsToggle.title = isAdmin ? 'Treat Priest(M) Crusaders with no buff score as DPS' : 'Only admins can change this setting';
+            dpsToggle.style.cursor = isAdmin ? 'pointer' : 'not-allowed';
+
+            // Subscribe to live updates
+            subscribeToRoom();
+        }).catch(err => console.error('Auth error:', err));
+    }
+
+    // EC Limit change (admin)
     globalClubLimitInput.addEventListener('change', () => {
-        saveState();
+        if (!isAdmin) return;
+        saveMeta();
         renderClubSummary();
     });
 
     // --- Global Controls (Export / Import / Clear) ---
     clearBtn.addEventListener('click', () => {
+        if (!isAdmin) return;
         showConfirm('Are you sure you want to clear EVERYTHING? This will remove all characters and all raids.', () => {
             partyPlan.clear();
             hiddenCharacters.clear();
             raids.length = 0;
             raidCounter = 0;
             updateAllViews();
+            saveMeta();
+            logAction('clear_all', `cleared all characters and raids.`);
             if (currentSearchResults.length > 0) {
                 renderResultCards(currentSearchResults);
             } else {
@@ -143,10 +388,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     clearRaidsBtn.addEventListener('click', () => {
+        if (!isAdmin) return;
         showConfirm('Are you sure you want to clear all raids?', () => {
             raids.length = 0;
             raidCounter = 0;
             updateAllViews();
+            saveMeta();
+            logAction('clear_raids', `cleared all raids.`);
         }, 'Clear Raids', 'primary');
     });
 
@@ -457,7 +705,13 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const state = JSON.parse(e.target.result);
                 partyPlan.clear();
-                if (state.partyPlan) state.partyPlan.forEach(([id, data]) => partyPlan.set(id, data));
+                if (state.partyPlan) {
+                    if (Array.isArray(state.partyPlan)) {
+                        state.partyPlan.forEach(([id, data]) => partyPlan.set(id, data));
+                    } else {
+                        Object.entries(state.partyPlan).forEach(([id, data]) => partyPlan.set(id, data));
+                    }
+                }
 
                 hiddenCharacters.clear();
                 if (state.hiddenCharacters) state.hiddenCharacters.forEach(id => hiddenCharacters.add(id));
@@ -474,6 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 raidCounter = state.raidCounter || 0;
                 updateAllViews();
+                logAction('import_json', `imported a planner backup.`);
                 alert('Backup imported successfully!');
             } catch (err) {
                 alert('Invalid backup file. Could not import data.');
@@ -486,6 +741,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Raid Controls ---
     addRaidBtn.addEventListener('click', () => {
+        if (!isAdmin) return;
         raidCounter++;
         const size = parseInt(raidSizeSelect.value);
         const partiesCount = size / 4;
@@ -495,11 +751,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         raids.push({ id: raidCounter, size, parties });
         updateAllViews();
+        saveMeta();
+        logAction('add_raid', `added a new Raid (#${raidCounter}).`);
     });
 
     // --- Auto Planner ---
     autoPlanBtn.addEventListener('click', () => {
-        const poolDPS = [];
+        if (!isAdmin) return;
         // Buffers are deliberately ignored in Auto Planner
 
         partyPlan.forEach((charData, charId) => {
@@ -660,6 +918,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateAllViews();
+        logAction('auto_plan', `auto-assigned DPS characters.`);
         if (raidsContainer.offsetTop) {
             window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
         }
@@ -668,6 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
     raidsContainer.addEventListener('click', (e) => {
         // Remove raid
         if (e.target.classList.contains('raid-remove-btn')) {
+            if (!isAdmin) return;
             const rId = parseInt(e.target.dataset.raidId);
             const raid = raids.find(r => r.id === rId);
             const raidName = raid ? (raid.name || `#${rId}`) : 'this raid';
@@ -677,6 +937,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (idx !== -1) {
                     raids.splice(idx, 1);
                     updateAllViews();
+                    saveMeta();
+                    logAction('remove_raid', `removed ${raidName}.`);
                 }
             }, 'Remove Raid', 'primary');
             return;
@@ -695,11 +957,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     raidsContainer.addEventListener('change', (e) => {
         if (e.target.classList.contains('raid-title-input')) {
+            if (!isAdmin) {
+                e.target.value = e.target.defaultValue; // Revert visually
+                return;
+            }
             const rId = parseInt(e.target.dataset.raidId);
             const raid = raids.find(r => r.id === rId);
             if (raid) {
+                const oldName = raid.name || `#${rId}`;
                 raid.name = e.target.value.trim();
                 saveState();
+                logAction('rename_raid', `renamed raid from "${oldName}" to "${raid.name}".`);
             }
         }
     });
@@ -1092,6 +1360,7 @@ document.addEventListener('DOMContentLoaded', () => {
             removeCharFromRaid(charId);
             renderResultCards(currentSearchResults);
             updateAllViews();
+            logAction('hide_char', `hid ${charData.characterName} from search results.`);
             return;
         }
 
@@ -1099,9 +1368,11 @@ document.addEventListener('DOMContentLoaded', () => {
             partyPlan.delete(charId);
             removeCharFromRaid(charId);
             card.classList.remove('selected');
+            logAction('remove_pool', `removed ${charData.characterName} from Roster Pool.`);
         } else {
             partyPlan.set(charId, charData);
             card.classList.add('selected');
+            logAction('add_pool', `added ${charData.characterName} to Roster Pool.`);
         }
         updateAllViews();
     });
@@ -1115,9 +1386,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Remove button or click drops it from the roster
         if (e.target.closest('.remove-btn')) {
+            const charData = partyPlan.get(charId);
             partyPlan.delete(charId);
             removeCharFromRaid(charId);
             updateAllViews();
+            if (charData) logAction('remove_pool', `removed ${charData.characterName} from Roster Pool.`);
 
             const searchCard = searchResults.querySelector(`.result-card[data-id="${charId}"]`);
             if (searchCard) {
@@ -1280,6 +1553,28 @@ document.addEventListener('DOMContentLoaded', () => {
         setCharInSlot(sourceSlotId, charB);
 
         updateAllViews();
+
+        const charA_Data = partyPlan.get(charA);
+        if (charA_Data) {
+            let targetName = targetSlotId === 'pool' ? 'Roster Pool' : 'a Raid Slot';
+            const tMatch = targetSlotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
+            if (tMatch) {
+                const trId = parseInt(tMatch[1]);
+                const tpIdx = parseInt(tMatch[2]);
+                const tRaid = raids.find(r => r.id === trId);
+                const raidName = tRaid ? (tRaid.name || `#${trId}`) : `#${trId}`;
+                const partyColors = ['Red', 'Yellow', 'Green'];
+                const partyName = partyColors[tpIdx] || `Party ${tpIdx+1}`;
+                targetName = `${raidName} ${partyName}`;
+            }
+
+            if (charB) {
+                const charB_Data = partyPlan.get(charB);
+                logAction('swap_char', `swapped ${charA_Data.characterName} and ${charB_Data ? charB_Data.characterName : 'someone'}.`);
+            } else {
+                logAction('move_char', `moved ${charA_Data.characterName} to ${targetName}.`);
+            }
+        }
     });
 
     searchForm.addEventListener('submit', async (e) => {
