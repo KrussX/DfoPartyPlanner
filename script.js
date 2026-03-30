@@ -142,8 +142,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const poolSearchInput = document.getElementById('pool-search');
 
 
+    const searchToggleHeader = document.getElementById('search-toggle-header');
+
     // --- Toggle Search ---
-    toggleSearchBtn.addEventListener('click', () => {
+    searchToggleHeader.style.cursor = 'pointer';
+    searchToggleHeader.addEventListener('click', () => {
         if (searchContent.style.display === 'none') {
             searchContent.style.display = 'block';
             toggleSearchBtn.textContent = '▾';
@@ -826,6 +829,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         raids.push({ id: raidCounter, size, parties });
         updateAllViews();
+        saveRaids();
         saveMeta();
         logAction('add_raid', `added a new Raid (#${raidCounter}).`);
     });
@@ -835,6 +839,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isAdmin) return;
         // Buffers are deliberately ignored in Auto Planner
 
+        const poolDPS = [];
         partyPlan.forEach((charData, charId) => {
             const isBuffer = charData.total_buff_score != null;
             if (!isBuffer) {
@@ -993,6 +998,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         updateAllViews();
+        saveRaids();
+        saveMeta();
         logAction('auto_plan', `auto-assigned DPS characters.`);
         if (raidsContainer.offsetTop) {
             window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
@@ -1609,7 +1616,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
-                if (rId && isAdventureNameDuplicate(rId, draggedCardId, slotId)) {
+                if (rId && checkAdventureNameConflict(rId, draggedCardId, slotId)) {
                     dropzone.classList.add('drag-over', 'invalid');
                     dropzone.title = 'Cannot have multiple characters from the same Explorer Club in one raid.';
                     return;

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DFO Party Planner</title>
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=3">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <meta name="description" content="A compact, efficient tool to plan your Dungeon Fighter Online raid compositions.">
     <meta name="theme-color" content="#ffffff">
@@ -37,11 +37,6 @@
                 </div>
                 <label class="toolbar-label">EC Limit:
                     <input type="number" id="global-club-limit" placeholder="∞" min="1" max="50">
-                </label>
-
-                <label class="toolbar-label checkbox-label" style="display: flex; align-items: center; gap: 0.3rem;">
-                    <input type="checkbox" id="dps-sader-buffer-toggle" checked style="width: auto;">
-                    Priest(M) DPS = Buffer
                 </label>
                 <select id="raid-size-select" class="admin-only">
                     <option value="4">4 Players</option>
@@ -135,7 +130,6 @@
     <!-- TOAST CONTAINER -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="script.js"></script>
     <!-- HISTORY SIDEBAR -->
     <div id="history-sidebar" class="history-sidebar">
         <div class="history-header">
@@ -167,7 +161,8 @@
                 <h3 style="margin: 0;">Manage Room Users</h3>
                 <button class="btn-close" id="close-manage-users-btn" style="font-size: 1.2rem;">×</button>
             </div>
-            <div id="users-list-container" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
+            <div id="users-list-container"
+                style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;">
                 <!-- Users will be listed here -->
             </div>
         </div>
@@ -185,7 +180,7 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=3"></script>
 </body>
 
 </html>
