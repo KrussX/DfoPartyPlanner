@@ -82,8 +82,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const partyPlan = new Map(); // characterId -> charData
     const hiddenCharacters = new Set(); // local only (search result hide)
     let currentSearchResults = [];
-    let raidCounter = 0;
-    const raids = [];
+    let contents = [];
+    let activeContentId = null;
     let draggedCardId = null;
     let sourceSlotId = null;
     let isAdmin = false;
@@ -109,15 +109,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const partyList = document.getElementById('party-list');
     const addRaidBtn = document.getElementById('add-raid-btn');
     const autoPlanBtn = document.getElementById('auto-plan-btn');
-    const raidSizeSelect = document.getElementById('raid-size-select');
     const raidsContainer = document.getElementById('raids-container');
-    const globalClubLimitInput = document.getElementById('global-club-limit');
     const clubSummaryContainer = document.getElementById('club-summary-container');
     const clubSummaryList = document.getElementById('club-summary-list');
 
     // Controls
-    const clearBtn = document.getElementById('clear-btn');
-    const clearRaidsBtn = document.getElementById('clear-raids-btn');
     const exportJsonBtn = document.getElementById('export-json-btn');
     const exportExcelBtn = document.getElementById('export-excel-btn');
     const importJsonBtn = document.getElementById('import-json-btn');
@@ -140,6 +136,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Pool Controls
     const poolSearchInput = document.getElementById('pool-search');
+
+    // Content Controls
+    const contentSelect = document.getElementById('content-select');
+    const addContentBtn = document.getElementById('add-content-btn');
+    const editContentBtn = document.getElementById('edit-content-btn');
+    const deleteContentBtn = document.getElementById('delete-content-btn');
+    // const autoPlanBtn = document.getElementById('auto-plan-btn'); // Hidden — not in use
+
+    // Content Modal Controls
+    const contentModal = document.getElementById('content-modal');
+    const contentForm = document.getElementById('content-form');
+    const contentNameInput = document.getElementById('content-name-input');
+    const contentClubLimitInput = document.getElementById('content-club-limit-input');
+    const contentPartySizeInput = document.getElementById('content-party-size-input');
+    const contentModalCancel = document.getElementById('content-modal-cancel');
+    const contentModalTitle = document.getElementById('content-modal-title');
+
+    function getActiveContent() {
+        if (!activeContentId) return null;
+        return contents.find(c => c.id === activeContentId) || null;
+    }
 
 
     const searchToggleHeader = document.getElementById('search-toggle-header');
@@ -185,28 +202,48 @@ document.addEventListener('DOMContentLoaded', () => {
         partyPlan.clear();
         if (data.partyPlan) {
             if (Array.isArray(data.partyPlan)) {
-                // Legacy json format fallback
+                // Legacy format
                 data.partyPlan.forEach(([id, charData]) => partyPlan.set(id, charData));
             } else {
                 Object.entries(data.partyPlan).forEach(([id, charData]) => partyPlan.set(id, charData));
             }
         }
-        raids.length = 0;
-        if (data.raids) {
-            data.raids.forEach(r => raids.push(r));
+        
+        if (data.contents) {
+            contents = data.contents;
+        } else {
+            // Legacy Migration
+            contents = [];
+            if (data.raids && data.raids.length > 0) {
+                let partySizeVal = 3;
+                if (data.meta && data.meta.raidSize) {
+                    partySizeVal = parseInt(data.meta.raidSize) / 4;
+                }
+                contents.push({
+                    id: 'content_default',
+                    name: 'Default Content',
+                    clubLimit: data.meta ? (data.meta.globalClubLimit || '') : '',
+                    partySize: partySizeVal,
+                    raidCounter: data.meta ? (data.meta.raidCounter || 0) : 0,
+                    raids: data.raids || []
+                });
+            }
         }
-        raidCounter = data.meta ? (data.meta.raidCounter || 0) : 0;
-        if (data.meta) {
-            if (data.meta.globalClubLimit !== undefined) {
-                globalClubLimitInput.value = data.meta.globalClubLimit;
-            }
-            if (data.meta.raidSize !== undefined) {
-                raidSizeSelect.value = data.meta.raidSize;
-            }
 
-            // Update isAdmin status live
+        // Restore activeContentId logic safely
+        const localActive = localStorage.getItem('dfoActiveContentId');
+        if (localActive && contents.some(c => c.id === localActive)) {
+            activeContentId = localActive;
+        } else if (contents.length > 0) {
+            activeContentId = contents[0].id; // Fallback to first
+        } else {
+            activeContentId = null;
+        }
+
+        renderContentSelect();
+
+        if (data.meta) {
             const admins = data.meta.admins || [];
-            // Migration: if no admins array but has adminName
             if (admins.length === 0 && data.meta.adminName) admins.push(data.meta.adminName);
 
             const newIsAdmin = admins.includes(userName);
@@ -231,9 +268,10 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.admin-only').forEach(el => {
             el.style.display = isAdmin ? '' : 'none';
         });
-        globalClubLimitInput.disabled = !isAdmin;
-        globalClubLimitInput.title = isAdmin ? 'Global Explorer Club Limit' : 'Only admins can change this setting';
-        globalClubLimitInput.style.cursor = isAdmin ? 'auto' : 'not-allowed';
+        
+        let showButtons = isAdmin && activeContentId;
+        if (addRaidBtn) addRaidBtn.style.display = showButtons ? '' : 'none';
+        // autoPlanBtn hidden — feature disabled
     }
 
     // --- Firestore: Write shared state ---
@@ -247,25 +285,21 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => { isWriting = false; }, 500);
     }
 
-    async function saveRaids() {
-        isWriting = true;
-        try {
-            await roomRef.update({ raids: raids });
-        } catch (e) { console.error('saveRaids failed', e); }
-        setTimeout(() => { isWriting = false; }, 500);
-    }
-
-    async function saveMeta() {
+    async function saveContents() {
         if (!isAdmin) return;
         isWriting = true;
         try {
-            await roomRef.update({
-                'meta.raidCounter': raidCounter,
-                'meta.globalClubLimit': globalClubLimitInput.value,
-                'meta.raidSize': raidSizeSelect.value
-            });
-        } catch (e) { console.error('saveMeta failed', e); }
+            await roomRef.update({ contents: contents });
+        } catch (e) { console.error('saveContents failed', e); }
         setTimeout(() => { isWriting = false; }, 500);
+    }
+    
+    // Legacy wrappers referencing the new system
+    async function saveRaids() {
+        await saveContents();
+    }
+    async function saveMeta() {
+        await saveContents();
     }
 
     // Legacy saveState: calls targeted saves. Used by updateAllViews.
@@ -409,13 +443,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const initialState = {
                     meta: {
                         admins: [userName],
-                        users: [userName],
-                        raidCounter: 0,
-                        globalClubLimit: '',
-                        raidSize: '12'
+                        users: [userName]
                     },
+                    contents: [
+                        {
+                            id: 'content_' + Date.now(),
+                            name: 'General Raid',
+                            clubLimit: '',
+                            partySize: 3,
+                            raidCounter: 0,
+                            raids: []
+                        }
+                    ],
                     partyPlan: {},
-                    raids: [],
                     history: [{
                         id: Date.now(), time: Date.now(), user: 'System',
                         action: 'created_room', details: `${userName} created the room.`
@@ -453,52 +493,124 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(err => console.error('Auth error:', err));
     }
 
-    // EC Limit change (admin)
-    globalClubLimitInput.addEventListener('change', () => {
-        if (!isAdmin) return;
-        saveMeta();
-        renderClubSummary();
+    // --- Content Management Logic ---
+    function renderContentSelect() {
+        if (!contentSelect) return;
+        contentSelect.innerHTML = '';
+        contents.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = c.name;
+            if (c.id === activeContentId) opt.selected = true;
+            contentSelect.appendChild(opt);
+        });
+    }
+
+    contentSelect.addEventListener('change', (e) => {
+        activeContentId = e.target.value;
+        localStorage.setItem('dfoActiveContentId', activeContentId);
+        updateAdminUI();
+        updateAllViews();
     });
 
-    // --- Global Controls (Export / Import / Clear) ---
-    clearBtn.addEventListener('click', () => {
+    let editingContentId = null;
+
+    addContentBtn.addEventListener('click', () => {
         if (!isAdmin) return;
-        showConfirm('Are you sure you want to clear EVERYTHING? This will remove all characters and all raids.', () => {
-            partyPlan.clear();
-            hiddenCharacters.clear();
-            raids.length = 0;
-            raidCounter = 0;
-            updateAllViews();
-            saveMeta();
-            savePartyPlan();
-            saveRaids();
-            logAction('clear_all', `cleared all characters and raids.`);
-            if (currentSearchResults.length > 0) {
-                renderResultCards(currentSearchResults);
-            } else {
-                document.getElementById('search-results').innerHTML = '';
+        editingContentId = null;
+        contentModalTitle.textContent = 'Add Content';
+        contentNameInput.value = '';
+        contentClubLimitInput.value = '';
+        contentPartySizeInput.value = '3';
+        contentModal.style.display = 'flex';
+    });
+
+    editContentBtn.addEventListener('click', () => {
+        if (!isAdmin) return;
+        const current = getActiveContent();
+        if (!current) return;
+        editingContentId = current.id;
+        contentModalTitle.textContent = 'Edit Content';
+        contentNameInput.value = current.name || '';
+        contentClubLimitInput.value = current.clubLimit || '';
+        contentPartySizeInput.value = (current.partySize || 3).toString();
+        contentModal.style.display = 'flex';
+    });
+
+    contentModalCancel.addEventListener('click', () => {
+        contentModal.style.display = 'none';
+    });
+
+    contentForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (!isAdmin) return;
+
+        const name = contentNameInput.value.trim();
+        const clubLimit = contentClubLimitInput.value;
+        const partySize = parseInt(contentPartySizeInput.value) || 3;
+
+        if (!name) return;
+
+        if (editingContentId) {
+            const current = contents.find(c => c.id === editingContentId);
+            if (current) {
+                const oldName = current.name;
+                current.name = name;
+                current.clubLimit = clubLimit;
+                current.partySize = partySize;
+                logAction('edit_content', `edited content "${oldName}" to "${name}".`);
             }
-        }, 'Clear Everything', 'danger');
+        } else {
+            const newContent = {
+                id: 'content_' + Date.now(),
+                name,
+                clubLimit,
+                partySize,
+                raidCounter: 0,
+                raids: []
+            };
+            contents.push(newContent);
+            activeContentId = newContent.id;
+            localStorage.setItem('dfoActiveContentId', activeContentId);
+            logAction('add_content', `added a new content "${name}".`);
+        }
+
+        contentModal.style.display = 'none';
+        saveContents();
+        renderContentSelect();
+        updateAdminUI();
+        updateAllViews();
     });
 
-    clearRaidsBtn.addEventListener('click', () => {
+    deleteContentBtn.addEventListener('click', () => {
         if (!isAdmin) return;
-        showConfirm('Are you sure you want to clear all raids?', () => {
-            raids.length = 0;
-            raidCounter = 0;
+        const current = getActiveContent();
+        if (!current) return;
+
+        showConfirm(`Are you sure you want to delete the content "${current.name}"? This removes all raids within it.`, () => {
+            contents = contents.filter(c => c.id !== current.id);
+            logAction('delete_content', `deleted content "${current.name}".`);
+            
+            if (contents.length > 0) {
+                activeContentId = contents[0].id;
+            } else {
+                activeContentId = null;
+            }
+            localStorage.setItem('dfoActiveContentId', activeContentId || '');
+            
+            saveContents();
+            renderContentSelect();
+            updateAdminUI();
             updateAllViews();
-            saveMeta();
-            saveRaids();
-            logAction('clear_raids', `cleared all raids.`);
-        }, 'Clear Raids', 'primary');
+        }, 'Delete Content', 'danger');
     });
 
+    // --- Global Controls (Export / Import) ---
     exportJsonBtn.addEventListener('click', async () => {
         const state = {
             partyPlan: Array.from(partyPlan.entries()),
             hiddenCharacters: Array.from(hiddenCharacters),
-            raids: raids,
-            raidCounter: raidCounter
+            contents: contents
         };
         const jsonStr = JSON.stringify(state, null, 2);
 
@@ -546,8 +658,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     exportExcelBtn.addEventListener('click', () => {
-        if (raids.length === 0) {
-            alert('No raids to export.');
+        const current = getActiveContent();
+        
+        if (!current || !current.raids || current.raids.length === 0) {
+            alert('No raids to export in the current content.');
             return;
         }
 
@@ -555,7 +669,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const ws_data = [];
         const merges = [];
 
-        const numRaids = raids.length;
+        const numRaids = current.raids.length;
         const leftCount = Math.ceil(numRaids / 2);
 
         let leftRow = 0;
@@ -568,7 +682,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ws_data[r][c] = cell;
         }
 
-        raids.forEach((raid, rIndex) => {
+        current.raids.forEach((raid, rIndex) => {
             const isRight = rIndex >= leftCount;
             let currentRow = isRight ? rightRow : leftRow;
             const startCol = isRight ? 4 : 0; // Col 0 or Col 4
@@ -756,7 +870,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
-        const filename = `raid_roster_${yyyy}-${mm}-${dd}.xlsx`;
+        const filename = `raid_roster_${current.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_${yyyy}-${mm}-${dd}.xlsx`;
 
         XLSX.writeFile(wb, filename);
     });
@@ -791,21 +905,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 hiddenCharacters.clear();
                 if (state.hiddenCharacters) state.hiddenCharacters.forEach(id => hiddenCharacters.add(id));
 
-                raids.length = 0;
-                if (state.raids) state.raids.forEach(r => {
-                    if (r.parties && r.parties.length > 0 && !r.parties[0].slots) {
-                        r.parties = r.parties.map(p => ({
-                            slots: [p.dps1 || null, p.dps2 || null, p.dps3 || null, p.buff || null]
-                        }));
-                    }
-                    raids.push(r);
-                });
+                if (state.contents) {
+                    contents = state.contents;
+                } else if (state.raids) {
+                    // Legacy import migration
+                    contents = [];
+                    const migratedRaids = [];
+                    state.raids.forEach(r => {
+                        if (r.parties && r.parties.length > 0 && !r.parties[0].slots) {
+                            r.parties = r.parties.map(p => ({
+                                slots: [p.dps1 || null, p.dps2 || null, p.dps3 || null, p.buff || null]
+                            }));
+                        }
+                        migratedRaids.push(r);
+                    });
+                    
+                    contents.push({
+                        id: 'content_imported_' + Date.now(),
+                        name: 'Imported Legacy Data',
+                        clubLimit: '',
+                        partySize: 3,
+                        raidCounter: state.raidCounter || 0,
+                        raids: migratedRaids
+                    });
+                }
 
-                raidCounter = state.raidCounter || 0;
+                if (contents.length > 0) {
+                    activeContentId = contents[0].id;
+                } else {
+                    activeContentId = null;
+                }
+                localStorage.setItem('dfoActiveContentId', activeContentId || '');
+
+                renderContentSelect();
                 updateAllViews();
-                saveMeta();
+                saveContents();
                 savePartyPlan();
-                saveRaids();
                 logAction('import_json', `imported a planner backup.`);
                 showToast('Backup imported successfully!', 'success');
             } catch (err) {
@@ -820,21 +955,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Raid Controls ---
     addRaidBtn.addEventListener('click', () => {
         if (!isAdmin) return;
-        raidCounter++;
-        const size = parseInt(raidSizeSelect.value);
-        const partiesCount = size / 4;
+        const current = getActiveContent();
+        if (!current) return;
+
+        current.raidCounter++;
+        const partiesCount = current.partySize || 3;
+        const size = partiesCount * 4;
         const parties = [];
         for (let i = 0; i < partiesCount; i++) {
             parties.push({ slots: [null, null, null, null] });
         }
-        raids.push({ id: raidCounter, size, parties });
+        current.raids.push({ id: current.raidCounter, size, parties });
         updateAllViews();
-        saveRaids();
-        saveMeta();
-        logAction('add_raid', `added a new Raid (#${raidCounter}).`);
+        saveContents();
+        logAction('add_raid', `added a new Raid (#${current.raidCounter}) to "${current.name}".`);
     });
 
-    // --- Auto Planner ---
+    // --- Auto Planner --- (DISABLED — feature hidden for now)
+    /*
     autoPlanBtn.addEventListener('click', () => {
         if (!isAdmin) return;
         // Buffers are deliberately ignored in Auto Planner
@@ -852,15 +990,18 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        const current = getActiveContent();
+        if (!current) return;
+
         poolDPS.sort((a, b) => b.power - a.power);
 
-        const size = parseInt(raidSizeSelect.value);
-        const P = size / 4;
+        const P = current.partySize || 3;
+        const size = P * 4;
         const R_DPS = 3 * P; // 3 DPS per party
 
         let maxN = Math.floor(poolDPS.length / R_DPS);
 
-        const globalLimitStr = globalClubLimitInput.value;
+        const globalLimitStr = current.clubLimit;
         const globalLimit = (globalLimitStr && parseInt(globalLimitStr) > 0) ? parseInt(globalLimitStr) : Infinity;
 
         let bestRaids = null;
@@ -876,7 +1017,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             for (const char of poolDPS) {
                 const currentUsage = clubUsageCount.get(char.adv) || 0;
-                if (currentUsage >= globalLimit) continue; // Skip globally if capped
+                if (currentUsage >= globalLimit) continue;
 
                 let bestBucket = null;
                 for (const bucket of testRaids) {
@@ -913,7 +1054,6 @@ document.addEventListener('DOMContentLoaded', () => {
             bestRaids = [];
         }
 
-        // --- Build Incomplete Extra Raid ---
         const assignedIds = new Set();
         bestRaids.forEach(r => {
             r.dps.forEach(c => assignedIds.add(c.id));
@@ -945,24 +1085,22 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        raids.length = 0;
-        raidCounter = 0;
+        current.raids.length = 0;
+        current.raidCounter = 0;
 
         for (const bucket of bestRaids) {
-            raidCounter++;
+            current.raidCounter++;
             const parties = [];
             for (let pIdx = 0; pIdx < P; pIdx++) parties.push({ slots: [null, null, null, null] });
 
             bucket.dps.sort((a, b) => b.power - a.power);
 
-            // Fill slots 0, 1, 2 with DPS using balance logic. (Slot 3 is left empty for buffer)
             for (const dChar of bucket.dps) {
                 let lowestDps = Infinity;
                 let targetParty = null;
                 let targetSlotIdx = null;
 
                 for (const p of parties) {
-                    // Only find empty slots among the first 3 (indices 0, 1, 2)
                     let emptyIdx = -1;
                     for (let sIdx = 0; sIdx < 3; sIdx++) {
                         if (p.slots[sIdx] === null) {
@@ -994,33 +1132,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            raids.push({ id: raidCounter, size: parseInt(raidSizeSelect.value), parties });
+            current.raids.push({ id: current.raidCounter, size, parties });
         }
 
         updateAllViews();
-        saveRaids();
-        saveMeta();
-        logAction('auto_plan', `auto-assigned DPS characters.`);
+        saveContents();
+        logAction('auto_plan', `auto-assigned DPS characters in "${current.name}".`);
         if (raidsContainer.offsetTop) {
             window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
         }
     });
+    */
 
     raidsContainer.addEventListener('click', (e) => {
         // Remove raid
         if (e.target.classList.contains('raid-remove-btn')) {
             if (!isAdmin) return;
+            const current = getActiveContent();
+            if (!current) return;
+
             const rId = parseInt(e.target.dataset.raidId);
-            const raid = raids.find(r => r.id === rId);
+            const raid = current.raids.find(r => r.id === rId);
             const raidName = raid ? (raid.name || `#${rId}`) : 'this raid';
 
-            showConfirm(`Are you sure you want to remove ${raidName}?`, () => {
-                const idx = raids.findIndex(r => r.id === rId);
+            showConfirm(`Are you sure you want to remove ${raidName} from "${current.name}"?`, () => {
+                const idx = current.raids.findIndex(r => r.id === rId);
                 if (idx !== -1) {
-                    raids.splice(idx, 1);
+                    current.raids.splice(idx, 1);
                     updateAllViews();
-                    saveMeta();
-                    logAction('remove_raid', `removed ${raidName}.`);
+                    saveContents();
+                    logAction('remove_raid', `removed ${raidName} from "${current.name}".`);
                 }
             }, 'Remove Raid', 'primary');
             return;
@@ -1043,13 +1184,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.target.value = e.target.defaultValue; // Revert visually
                 return;
             }
+            const current = getActiveContent();
+            if (!current) return;
+
             const rId = parseInt(e.target.dataset.raidId);
-            const raid = raids.find(r => r.id === rId);
+            const raid = current.raids.find(r => r.id === rId);
             if (raid) {
                 const oldName = raid.name || `#${rId}`;
                 raid.name = e.target.value.trim();
-                saveRaids();
-                logAction('rename_raid', `renamed raid from "${oldName}" to "${raid.name}".`);
+                saveContents();
+                logAction('rename_raid', `renamed raid from "${oldName}" to "${raid.name}" in "${current.name}".`);
             }
         }
     });
@@ -1114,7 +1258,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getAssignedChars() {
         const assigned = new Set();
-        raids.forEach(r => r.parties.forEach(p => {
+        const current = getActiveContent();
+        if (!current) return assigned;
+
+        current.raids.forEach(r => r.parties.forEach(p => {
             p.slots.forEach(s => { if (s) assigned.add(s); });
         }));
         return assigned;
@@ -1122,23 +1269,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getCharInSlot(slotId) {
         if (slotId === 'pool') return null;
+        const current = getActiveContent();
+        if (!current) return null;
+
         const parts = slotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
         if (!parts) return null;
-        const raid = raids.find(r => r.id === parseInt(parts[1]));
+        const raid = current.raids.find(r => r.id === parseInt(parts[1]));
         if (raid) return raid.parties[parseInt(parts[2])].slots[parseInt(parts[3])];
         return null;
     }
 
     function setCharInSlot(slotId, charId) {
         if (slotId === 'pool') return;
+        const current = getActiveContent();
+        if (!current) return;
+
         const parts = slotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
         if (!parts) return;
-        const raid = raids.find(r => r.id === parseInt(parts[1]));
+        const raid = current.raids.find(r => r.id === parseInt(parts[1]));
         if (raid) raid.parties[parseInt(parts[2])].slots[parseInt(parts[3])] = charId;
     }
 
     function checkAdventureNameConflict(raidId, charAId, targetSlotId) {
-        const raid = raids.find(r => r.id === raidId);
+        const current = getActiveContent();
+        if (!current) return null;
+
+        const raid = current.raids.find(r => r.id === raidId);
         if (!raid) return null;
 
         const charA = partyPlan.get(charAId);
@@ -1167,13 +1323,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function isGlobalAdventureNameLimitReached(advName, excludeCharId = null) {
-        const limitStr = globalClubLimitInput.value;
+        const current = getActiveContent();
+        if (!current) return false;
+
+        const limitStr = current.clubLimit;
         if (!limitStr) return false;
         const limit = parseInt(limitStr);
         if (isNaN(limit) || limit <= 0) return false;
 
         let currentCount = 0;
-        raids.forEach(r => r.parties.forEach(p => {
+        current.raids.forEach(r => r.parties.forEach(p => {
             p.slots.forEach(charId => {
                 if (charId && charId !== excludeCharId && partyPlan.has(charId)) {
                     if (partyPlan.get(charId).adventureName === advName) {
@@ -1189,7 +1348,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderClubSummary() {
         const allCounts = new Map();
         let totalAssigned = 0;
-        raids.forEach(r => r.parties.forEach(p => {
+        const current = getActiveContent();
+        if (!current) {
+            clubSummaryContainer.style.display = 'none';
+            return;
+        }
+
+        current.raids.forEach(r => r.parties.forEach(p => {
             p.slots.forEach(charId => {
                 if (charId && partyPlan.has(charId)) {
                     const adv = partyPlan.get(charId).adventureName;
@@ -1211,7 +1376,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sortedCounts = Array.from(allCounts.entries()).sort((a, b) => b[1] - a[1]);
 
         let html = '';
-        const limitStr = globalClubLimitInput.value;
+        const limitStr = current.clubLimit;
         const limit = (limitStr && parseInt(limitStr) > 0) ? parseInt(limitStr) : null;
 
         sortedCounts.forEach(([adv, count]) => {
@@ -1228,7 +1393,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function removeCharFromRaid(charId) {
-        raids.forEach(r => r.parties.forEach(p => {
+        const current = getActiveContent();
+        if (!current) return;
+        current.raids.forEach(r => r.parties.forEach(p => {
             p.slots = p.slots.map(s => s === charId ? null : s);
         }));
     }
@@ -1290,11 +1457,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // ... [RENDER RAIDS] ...
     function renderRaids() {
         raidsContainer.innerHTML = '';
-        if (raids.length === 0) {
+        const current = getActiveContent();
+
+        if (!current || !current.raids || current.raids.length === 0) {
             raidsContainer.innerHTML = '<div class="empty-raids-msg"><p>No raids yet. Click <strong>Add Raid</strong> or <strong>Auto assign DPS</strong> to get started.</p></div>';
             return;
         }
-        raids.forEach((raid, rIndex) => {
+
+        current.raids.forEach((raid, rIndex) => {
             const raidBlock = document.createElement('div');
             raidBlock.className = 'raid-block';
 
@@ -1476,7 +1646,7 @@ document.addEventListener('DOMContentLoaded', () => {
             renderResultCards(currentSearchResults);
             updateAllViews();
             savePartyPlan();
-            saveRaids();
+            saveContents();
             logAction('hide_char', `hid ${charData.characterName} from search results.`);
             return;
         }
@@ -1493,7 +1663,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         updateAllViews();
         savePartyPlan();
-        saveRaids();
+        saveContents();
     });
 
     // --- Party List Events ---
@@ -1510,7 +1680,7 @@ document.addEventListener('DOMContentLoaded', () => {
             removeCharFromRaid(charId);
             updateAllViews();
             savePartyPlan();
-            saveRaids();
+            saveContents();
             if (charData) logAction('remove_pool', `removed ${charData.characterName} from Roster Pool.`);
 
             const searchCard = searchResults.querySelector(`.result-card[data-id="${charId}"]`);
@@ -1596,7 +1766,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rId = parseInt(parts[1]);
                 const pIdx = parseInt(parts[2]);
                 const sIdx = parseInt(parts[3]);
-                const raid = raids.find(r => r.id === rId);
+                const current = getActiveContent();
+                const raid = current ? current.raids.find(r => r.id === rId) : null;
                 if (raid) {
                     const party = raid.parties[pIdx];
                     const existingOccupant = party.slots[sIdx];
@@ -1661,7 +1832,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const rId = parseInt(parts[1]);
                 const pIdx = parseInt(parts[2]);
                 const sIdx = parseInt(parts[3]);
-                const raid = raids.find(r => r.id === rId);
+                const current = getActiveContent();
+                const raid = current ? current.raids.find(r => r.id === rId) : null;
                 if (raid) {
                     const party = raid.parties[pIdx];
                     const existingOccupant = party.slots[sIdx];
@@ -1708,7 +1880,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setCharInSlot(sourceSlotId, charB);
 
         updateAllViews();
-        saveRaids();
+        saveContents();
 
         const charA_Data = partyPlan.get(charA);
         if (charA_Data) {
@@ -1717,7 +1889,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tMatch) {
                 const trId = parseInt(tMatch[1]);
                 const tpIdx = parseInt(tMatch[2]);
-                const tRaid = raids.find(r => r.id === trId);
+                const current = getActiveContent();
+                const tRaid = current ? current.raids.find(r => r.id === trId) : null;
                 const raidName = tRaid ? (tRaid.name || `#${trId}`) : `#${trId}`;
                 const partyColors = ['Red', 'Yellow', 'Green'];
                 const partyName = partyColors[tpIdx] || `Party ${tpIdx + 1}`;
@@ -1918,39 +2091,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Post-refresh validation: Remove characters if their type changed causing >3 of one role
         let ejectedCount = 0;
-        raids.forEach(r => {
-            r.parties.forEach(p => {
-                let dpsCount = 0, buffCount = 0;
-                p.slots.forEach((charId, idx) => {
-                    if (!charId) return;
-                    const char = partyPlan.get(charId);
-                    if (!char) return;
+        const current = getActiveContent();
+        if (current) {
+            current.raids.forEach(r => {
+                r.parties.forEach(p => {
+                    let dpsCount = 0, buffCount = 0;
+                    p.slots.forEach((charId, idx) => {
+                        if (!charId) return;
+                        const char = partyPlan.get(charId);
+                        if (!char) return;
 
-                    const isBuffer = char.total_buff_score != null;
-                    if (isBuffer) {
-                        if (buffCount >= 3) {
-                            p.slots[idx] = null;
-                            ejectedCount++;
+                        const isBuffer = char.total_buff_score != null;
+                        if (isBuffer) {
+                            if (buffCount >= 3) {
+                                p.slots[idx] = null;
+                                ejectedCount++;
+                            } else {
+                                buffCount++;
+                            }
                         } else {
-                            buffCount++;
+                            if (dpsCount >= 3) {
+                                p.slots[idx] = null;
+                                ejectedCount++;
+                            } else {
+                                dpsCount++;
+                            }
                         }
-                    } else {
-                        if (dpsCount >= 3) {
-                            p.slots[idx] = null;
-                            ejectedCount++;
-                        } else {
-                            dpsCount++;
-                        }
-                    }
+                    });
                 });
             });
-        });
+        }
 
         updateAllViews();
         if (currentSearchResults.length > 0) renderResultCards(currentSearchResults);
 
         savePartyPlan();
-        if (ejectedCount > 0) saveRaids();
+        if (ejectedCount > 0) saveContents();
 
         logAction('refresh_scores', `refreshed scores for ${clubNames.size} Explorer Club(s). ${updated} character(s) updated.`);
 

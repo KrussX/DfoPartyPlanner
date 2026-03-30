@@ -13,7 +13,7 @@ service cloud.firestore {
       // We still restrict affectedKeys to prevent completely breaking the document structure.
       allow update: if request.auth != null
                     && request.resource.data.diff(resource.data).affectedKeys()
-                         .hasOnly(['meta', 'partyPlan', 'raids', 'presence', 'history']);
+                         .hasOnly(['meta', 'partyPlan', 'raids', 'contents', 'presence', 'history']);
     }
   }
 }

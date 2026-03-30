@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DFO Party Planner</title>
-    <link rel="stylesheet" href="styles.css?v=3">
+    <link rel="stylesheet" href="styles.css?v=6">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <meta name="description" content="A compact, efficient tool to plan your Dungeon Fighter Online raid compositions.">
     <meta name="theme-color" content="#ffffff">
@@ -35,28 +35,31 @@
                     <button type="button" class="btn btn-sm btn-danger" id="logout-btn"
                         style="padding: 0.15rem 0.4rem; font-size: 0.65rem;">Logout</button>
                 </div>
-                <label class="toolbar-label">EC Limit:
-                    <input type="number" id="global-club-limit" placeholder="∞" min="1" max="50">
-                </label>
-                <select id="raid-size-select" class="admin-only">
-                    <option value="4">4 Players</option>
-                    <option value="8">8 Players</option>
-                    <option value="12" selected>12 Players</option>
-                </select>
-                <button type="button" class="btn admin-only" id="add-raid-btn">Add Raid</button>
-                <button type="button" class="btn btn-accent admin-only" id="auto-plan-btn">Auto assign DPS</button>
-                <button type="button" class="btn" id="refresh-scores-btn">Refresh scores</button>
+                <!-- Content Selector -->
+                <div class="content-manager">
+                    <select id="content-select" class="content-select">
+                        <!-- populated by JS -->
+                    </select>
+                    <button type="button" class="btn btn-sm btn-primary admin-only" id="add-content-btn"
+                        title="Add Content">+</button>
+                    <button type="button" class="btn btn-sm admin-only" id="edit-content-btn"
+                        title="Edit Content">✎</button>
+                    <button type="button" class="btn btn-sm btn-danger admin-only" id="delete-content-btn"
+                        title="Delete Content">×</button>
+                </div>
+                <span class="toolbar-sep"></span>
+
+                <button type="button" class="btn admin-only" id="add-raid-btn" style="display: none;">Add Raid</button>
+                <button type="button" class="btn" id="refresh-scores-btn">Refresh Scores</button>
                 <span class="toolbar-sep"></span>
                 <button type="button" class="btn btn-sm" id="export-json-btn">Export Planner</button>
-                <button type="button" class="btn btn-sm btn-accent" id="export-excel-btn">Export Excel</button>
                 <button type="button" class="btn btn-sm admin-only" id="import-json-btn">Import Planner</button>
                 <input type="file" id="import-file-input" accept=".json" style="display: none;">
-                <button type="button" class="btn btn-sm admin-only" id="clear-raids-btn">Clear raids</button>
-                <button type="button" class="btn btn-sm btn-danger admin-only" id="clear-btn">Clear everything</button>
+                <button type="button" class="btn btn-sm btn-accent" id="export-excel-btn">Export Excel</button>
                 <span class="toolbar-sep"></span>
-                <button type="button" class="btn btn-sm" id="history-btn">History log</button>
-                <button type="button" class="btn btn-sm admin-only" id="manage-users-btn">👥 Manage Users</button>
-                <button type="button" class="btn btn-sm" id="copy-link-btn">🔗 Copy Room link</button>
+                <button type="button" class="btn btn-sm" id="history-btn">History Log</button>
+                <button type="button" class="btn btn-sm admin-only" id="manage-users-btn">Manage Users</button>
+                <button type="button" class="btn btn-sm" id="copy-link-btn">Copy Room link</button>
                 <button type="button" class="btn btn-sm" id="theme-toggle-btn">🌙 Dark</button>
             </div>
         </header>
@@ -177,6 +180,38 @@
                 <button type="button" class="btn" id="modal-cancel">Cancel</button>
                 <button type="button" class="btn btn-primary" id="modal-confirm">Confirm</button>
             </div>
+        </div>
+    </div>
+
+    <!-- CONTENT MODAL -->
+    <div id="content-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content content-modal-card">
+            <h3 id="content-modal-title">Add Content</h3>
+            <form id="content-form" class="content-form">
+                <div class="form-field">
+                    <label class="form-label">Content Name</label>
+                    <input type="text" id="content-name-input" class="form-input" required autocomplete="off"
+                        placeholder="e.g. Bakal, Asrahan…">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Explorer Club Limit <span class="form-hint">(leave empty for no
+                            limit)</span></label>
+                    <input type="number" id="content-club-limit-input" class="form-input" placeholder="∞" min="1"
+                        max="50">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Party Size</label>
+                    <select id="content-party-size-input" class="form-select">
+                        <option value="1">1 Party — 4 Players</option>
+                        <option value="2">2 Parties — 8 Players</option>
+                        <option value="3" selected>3 Parties — 12 Players</option>
+                    </select>
+                </div>
+                <div class="modal-actions content-form-actions">
+                    <button type="button" class="btn" id="content-modal-cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="content-modal-submit">Save Content</button>
+                </div>
+            </form>
         </div>
     </div>
 
