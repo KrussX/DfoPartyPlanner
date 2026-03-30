@@ -18,17 +18,16 @@
         <header class="toolbar">
             <div style="display: flex; flex-direction: column;">
                 <h1 class="toolbar-title" style="margin-bottom: 0;">DFO Raid Planner</h1>
-                <a href="https://dfogang.com" target="_blank" rel="noopener noreferrer" style="font-size: 0.65rem; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px;">Powered by dfogang.com</a>
+                <a href="https://dfogang.com" target="_blank" rel="noopener noreferrer"
+                    style="font-size: 0.65rem; color: var(--text-muted); text-decoration: none; letter-spacing: 0.5px;">Powered
+                    by dfogang.com</a>
             </div>
             <div class="toolbar-controls">
                 <label class="toolbar-label">EC Limit:
                     <input type="number" id="global-club-limit" placeholder="∞" min="1" max="50">
                 </label>
-                <label class="toolbar-label checkbox-label" style="display: flex; align-items: center; gap: 0.3rem;">
-                    <input type="checkbox" id="dps-sader-buffer-toggle" checked style="width: auto;">
-                    Priest(M) DPS = Buffer
-                </label>
-                <select id="raid-size-select">
+
+                <select id="raid-size-select" class="admin-only">
                     <option value="4">4 Players</option>
                     <option value="8">8 Players</option>
                     <option value="12" selected>12 Players</option>
@@ -82,6 +81,20 @@
                     <div id="club-summary-container" class="club-summary" style="display: none;">
                         <div id="club-summary-list"></div>
                     </div>
+                    <div class="pool-controls">
+                        <input type="text" id="pool-search" placeholder="Search roster..." autocomplete="off">
+                        <div class="pool-buttons">
+                            <button type="button" class="btn btn-xs pool-filter-btn active"
+                                data-filter="all">All</button>
+                            <button type="button" class="btn btn-xs pool-filter-btn" data-filter="dps">DPS</button>
+                            <button type="button" class="btn btn-xs pool-filter-btn" data-filter="buff">Buff</button>
+                            <span class="toolbar-sep"></span>
+                            <button type="button" class="btn btn-xs pool-sort-btn" data-sort="dps"
+                                title="Sort by DPS descending">↓ DPS</button>
+                            <button type="button" class="btn btn-xs pool-sort-btn" data-sort="buff"
+                                title="Sort by Buff descending">↓ Buff</button>
+                        </div>
+                    </div>
                     <div class="pool-list party-list" id="party-list">
                         <p class="no-results" id="empty-party-msg">Click characters from search results to add them.</p>
                     </div>
@@ -103,7 +116,7 @@
     <div id="toast-container" class="toast-container"></div>
 
     <script src="script.js"></script>
-    
+
     <!-- CONFIRMATION MODAL -->
     <div id="confirm-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content">
