@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rooms/{roomId} {
+
+      // Anyone authenticated (even anonymously) can read the room
+      allow read: if request.auth != null;
+
+      // Only the admin (room creator) can create the room document
+      allow create: if request.auth != null;
+
+      // Members can update room docs (admin rights are enforced via JS checking adminName).
+      // We still restrict affectedKeys to prevent completely breaking the document structure.
+      allow update: if request.auth != null
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['meta', 'partyPlan', 'raids', 'presence', 'history']);
+    }
+  }
+}
