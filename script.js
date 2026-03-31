@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 Object.entries(data.partyPlan).forEach(([id, charData]) => partyPlan.set(id, charData));
             }
         }
-        
+
         if (data.contents) {
             contents = data.contents;
         } else {
@@ -256,44 +256,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderUsersList(data.meta.users, admins);
             }
         }
-
         if (data.history) {
             renderHistory(data.history);
         }
 
         updateAllViews();
+        updateAdminUI();
     }
 
     function updateAdminUI() {
         document.querySelectorAll('.admin-only').forEach(el => {
             el.style.display = isAdmin ? '' : 'none';
         });
-        
-        let showButtons = isAdmin && activeContentId;
-        if (addRaidBtn) addRaidBtn.style.display = showButtons ? '' : 'none';
-        // autoPlanBtn hidden — feature disabled
+
+        // Add Raid: Visible to everyone if content is selected
+        if (addRaidBtn) {
+            addRaidBtn.style.display = activeContentId ? '' : 'none';
+        }
     }
 
     // --- Firestore: Write shared state ---
     async function savePartyPlan() {
+        if (isWriting) return;
         isWriting = true;
         try {
             const planObj = {};
             partyPlan.forEach((val, key) => planObj[key] = val);
             await roomRef.update({ partyPlan: planObj });
-        } catch (e) { console.error('savePartyPlan failed', e); }
+        } catch (e) {
+            console.error('savePartyPlan failed', e);
+        }
         setTimeout(() => { isWriting = false; }, 500);
     }
 
     async function saveContents() {
-        if (!isAdmin) return;
         isWriting = true;
         try {
             await roomRef.update({ contents: contents });
         } catch (e) { console.error('saveContents failed', e); }
         setTimeout(() => { isWriting = false; }, 500);
     }
-    
+
     // Legacy wrappers referencing the new system
     async function saveRaids() {
         await saveContents();
@@ -590,14 +593,14 @@ document.addEventListener('DOMContentLoaded', () => {
         showConfirm(`Are you sure you want to delete the content "${current.name}"? This removes all raids within it.`, () => {
             contents = contents.filter(c => c.id !== current.id);
             logAction('delete_content', `deleted content "${current.name}".`);
-            
+
             if (contents.length > 0) {
                 activeContentId = contents[0].id;
             } else {
                 activeContentId = null;
             }
             localStorage.setItem('dfoActiveContentId', activeContentId || '');
-            
+
             saveContents();
             renderContentSelect();
             updateAdminUI();
@@ -659,7 +662,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     exportExcelBtn.addEventListener('click', () => {
         const current = getActiveContent();
-        
+
         if (!current || !current.raids || current.raids.length === 0) {
             alert('No raids to export in the current content.');
             return;
@@ -919,7 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         migratedRaids.push(r);
                     });
-                    
+
                     contents.push({
                         id: 'content_imported_' + Date.now(),
                         name: 'Imported Legacy Data',
@@ -954,7 +957,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Raid Controls ---
     addRaidBtn.addEventListener('click', () => {
-        if (!isAdmin) return;
         const current = getActiveContent();
         if (!current) return;
 
@@ -1147,7 +1149,6 @@ document.addEventListener('DOMContentLoaded', () => {
     raidsContainer.addEventListener('click', (e) => {
         // Remove raid
         if (e.target.classList.contains('raid-remove-btn')) {
-            if (!isAdmin) return;
             const current = getActiveContent();
             if (!current) return;
 
@@ -1174,16 +1175,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (slot) {
                 setCharInSlot(slot.dataset.slotId, null);
                 updateAllViews();
+                saveContents();
             }
         }
     });
 
     raidsContainer.addEventListener('change', (e) => {
         if (e.target.classList.contains('raid-title-input')) {
-            if (!isAdmin) {
-                e.target.value = e.target.defaultValue; // Revert visually
-                return;
-            }
             const current = getActiveContent();
             if (!current) return;
 
