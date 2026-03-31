@@ -197,18 +197,26 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- State Hydration ---
+    function loadPartyPlanFromContent() {
+        partyPlan.clear();
+        const current = getActiveContent();
+        if (current && current.partyPlan) {
+            Object.entries(current.partyPlan).forEach(([id, charData]) => partyPlan.set(id, charData));
+        }
+    }
+
+    function syncPartyPlanToContent() {
+        const current = getActiveContent();
+        if (current) {
+            const planObj = {};
+            partyPlan.forEach((val, key) => planObj[key] = val);
+            current.partyPlan = planObj;
+        }
+    }
+
     // --- Firestore: Apply incoming state to local vars + re-render ---
     function applyState(data) {
-        partyPlan.clear();
-        if (data.partyPlan) {
-            if (Array.isArray(data.partyPlan)) {
-                // Legacy format
-                data.partyPlan.forEach(([id, charData]) => partyPlan.set(id, charData));
-            } else {
-                Object.entries(data.partyPlan).forEach(([id, charData]) => partyPlan.set(id, charData));
-            }
-        }
-
         if (data.contents) {
             contents = data.contents;
         } else {
@@ -228,6 +236,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     raids: data.raids || []
                 });
             }
+        }
+
+        // Native property check
+        contents.forEach(c => {
+            if (!c.partyPlan) c.partyPlan = {};
+        });
+
+        // Legacy partyPlan Migration (Move root partyPlan to first content)
+        if (data.partyPlan && contents.length > 0) {
+            const firstContent = contents[0];
+            const migratedPlan = {};
+            if (Array.isArray(data.partyPlan)) {
+                data.partyPlan.forEach(([id, charData]) => migratedPlan[id] = charData);
+            } else {
+                Object.entries(data.partyPlan).forEach(([id, charData]) => migratedPlan[id] = charData);
+            }
+            firstContent.partyPlan = { ...migratedPlan, ...firstContent.partyPlan };
         }
 
         // Restore activeContentId logic safely
@@ -260,6 +285,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderHistory(data.history);
         }
 
+        loadPartyPlanFromContent();
+
         updateAllViews();
         updateAdminUI();
     }
@@ -275,18 +302,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Firestore: Write shared state ---
     async function savePartyPlan() {
-        if (isWriting) return;
-        isWriting = true;
-        try {
-            const planObj = {};
-            partyPlan.forEach((val, key) => planObj[key] = val);
-            await roomRef.update({ partyPlan: planObj });
-        } catch (e) {
-            console.error('savePartyPlan failed', e);
-        }
-        setTimeout(() => { isWriting = false; }, 500);
+        syncPartyPlanToContent();
+        await saveContents();
     }
 
     async function saveContents() {
@@ -512,6 +530,7 @@ document.addEventListener('DOMContentLoaded', () => {
     contentSelect.addEventListener('change', (e) => {
         activeContentId = e.target.value;
         localStorage.setItem('dfoActiveContentId', activeContentId);
+        loadPartyPlanFromContent();
         updateAdminUI();
         updateAllViews();
     });
@@ -622,7 +641,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
-        const filename = `planner_${yyyy}-${mm}-${dd}.json`;
+        
+        const activeContent = getActiveContent();
+        const contentName = activeContent ? activeContent.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() : 'all';
+        const filename = `dfo_planner_${contentName}_${yyyy}-${mm}-${dd}.json`;
 
         if (window.showSaveFilePicker) {
             try {
@@ -1568,6 +1590,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const poolAvailable = poolTotal - assigned.size;
         if (poolCountEl) poolCountEl.textContent = `${poolAvailable}/${poolTotal}`;
 
+        // Maintain current search card highlight state
+        if (currentSearchResults && currentSearchResults.length > 0) {
+            document.querySelectorAll('#search-results .char-card, #search-results .result-card').forEach(card => {
+                const charId = card.getAttribute('data-id');
+                if (!charId) return;
+                if (partyPlan.has(charId)) {
+                    card.classList.add('selected');
+                } else {
+                    card.classList.remove('selected');
+                }
+            });
+        }
+
         if (partyPlan.size === 0) {
             partyList.innerHTML = '<p class="no-results" id="empty-party-msg">Click characters from search results to add them.</p>';
             return;
@@ -2085,7 +2120,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         refreshScoresBtn.disabled = false;
-        refreshScoresBtn.textContent = 'Refresh scores';
+        refreshScoresBtn.textContent = 'Refresh Current Scores';
 
         // Post-refresh validation: Remove characters if their type changed causing >3 of one role
         let ejectedCount = 0;
@@ -2122,7 +2157,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         updateAllViews();
         if (currentSearchResults.length > 0) renderResultCards(currentSearchResults);
-
         savePartyPlan();
         if (ejectedCount > 0) saveContents();
 
