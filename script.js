@@ -197,6 +197,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Sidebar Toggle ---
+    const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+    const panelLeft = document.querySelector('.panel-left');
+
+    function applySidebarState(collapsed) {
+        if (collapsed) {
+            panelLeft.classList.add('collapsed');
+            sidebarToggleBtn.textContent = '▶ Show Panel';
+        } else {
+            panelLeft.classList.remove('collapsed');
+            sidebarToggleBtn.textContent = '◀ Hide Panel';
+        }
+        localStorage.setItem('dfoSidebarCollapsed', collapsed ? '1' : '0');
+    }
+
+    const savedSidebarState = localStorage.getItem('dfoSidebarCollapsed') === '1';
+    applySidebarState(savedSidebarState);
+
+    sidebarToggleBtn.addEventListener('click', () => {
+        const isCollapsed = panelLeft.classList.contains('collapsed');
+        applySidebarState(!isCollapsed);
+    });
+
     // --- State Hydration ---
     function loadPartyPlanFromContent() {
         partyPlan.clear();
@@ -1471,7 +1494,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${removeBtnStr}
                 <div class="card-info">
                     <div class="card-name">${char.characterName}</div>
-                    <div class="card-sub">${char.adventureName || '?'} · ${char.jobGrowName || char.jobName}</div>
+                    <div class="card-sub">${char.adventureName || '?'}</div>
                 </div>
                 <div class="card-stats">
                     <div class="card-score">${scoreDisplay}</div>
@@ -1527,10 +1550,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="party-header">${partyName}</div>
                         ${slotsHtml}
                         <div class="party-footer">
-                            <span class="party-dmg-label">DPS</span>
-                            <span class="party-dmg-value dps-val">${totals.dps}</span>
-                            <span class="party-dmg-label">Buff</span>
-                            <span class="party-dmg-value buff-val">${totals.buff}</span>
+                            <div class="party-footer-row">
+                                <span class="party-dmg-label">DPS</span>
+                                <span class="party-dmg-value dps-val">${totals.dps}</span>
+                            </div>
+                            <div class="party-footer-row">
+                                <span class="party-dmg-label">Buff</span>
+                                <span class="party-dmg-value buff-val">${totals.buff}</span>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -1586,6 +1613,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ... [UPDATE ALL VIEWS] ...
     function updateAllViews() {
         renderRaids();
+        applyRaidSearchHighlight();
         renderClubSummary();
 
         const assigned = getAssignedChars();
@@ -1667,6 +1695,27 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         partyList.innerHTML = poolHtml;
+    }
+
+    // --- Raid search highlight ---
+    function applyRaidSearchHighlight() {
+        const q = poolSearchQuery ? poolSearchQuery.toLowerCase() : '';
+        document.querySelectorAll('#raids-container .party-slot .result-card').forEach(card => {
+            if (!q) {
+                card.classList.remove('raid-search-match');
+                return;
+            }
+            const charId = card.getAttribute('data-id');
+            const char = charId ? partyPlan.get(charId) : null;
+            if (!char) { card.classList.remove('raid-search-match'); return; }
+            const nameMatch = (char.characterName || '').toLowerCase().includes(q);
+            const advMatch = (char.adventureName || '').toLowerCase().includes(q);
+            if (nameMatch || advMatch) {
+                card.classList.add('raid-search-match');
+            } else {
+                card.classList.remove('raid-search-match');
+            }
+        });
     }
 
     // --- Search Results Events ---
@@ -1787,6 +1836,87 @@ document.addEventListener('DOMContentLoaded', () => {
         sourceSlotId = null;
     });
 
+    function validateDrag(dragAId, sourceSlotId, targetSlotId) {
+        if (sourceSlotId === targetSlotId) return null;
+
+        const current = getActiveContent();
+        if (!current) return 'No active content.';
+
+        const charA = partyPlan.get(dragAId);
+        if (!charA) return 'Character not found.';
+
+        const charBId = targetSlotId === 'pool' ? null : getCharInSlot(targetSlotId);
+        const charB = charBId ? partyPlan.get(charBId) : null;
+
+        const tMatch = targetSlotId === 'pool' ? null : targetSlotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
+        const sMatch = sourceSlotId === 'pool' ? null : sourceSlotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
+
+        const tRId = tMatch ? parseInt(tMatch[1]) : null;
+        const tpIdx = tMatch ? parseInt(tMatch[2]) : null;
+        const tsIdx = tMatch ? parseInt(tMatch[3]) : null;
+
+        const sRId = sMatch ? parseInt(sMatch[1]) : null;
+        const spIdx = sMatch ? parseInt(sMatch[2]) : null;
+        const ssIdx = sMatch ? parseInt(sMatch[3]) : null;
+
+        // 1. Global limit (only applies if charA is entering from pool)
+        if (sourceSlotId === 'pool' && charA.adventureName && isGlobalAdventureNameLimitReached(charA.adventureName, dragAId)) {
+            return 'Global Explorer Club limit reached across all raids combined.';
+        }
+
+        // 2. Target Raid limit (charA entering target raid)
+        if (tRId) {
+            const conflict = checkAdventureNameConflict(tRId, dragAId, targetSlotId);
+            if (conflict === 'party') return 'Explorer Club is already in this party.';
+            if (conflict === 'raid') return 'Explorer Club is already in this raid.';
+        }
+
+        // 3. Source Raid limit (charB entering source raid via swap)
+        if (charB && sRId) {
+            const conflict = checkAdventureNameConflict(sRId, charBId, sourceSlotId);
+            if (conflict === 'party') return 'Swapped character\'s Explorer Club is already in the source party.';
+            if (conflict === 'raid') return 'Swapped character\'s Explorer Club is already in the source raid.';
+        }
+
+        // 4. Target Party Types
+        if (tMatch && (!sMatch || tRId !== sRId || tpIdx !== spIdx)) {
+            const raid = current.raids.find(r => r.id === tRId);
+            if (raid) {
+                const party = raid.parties[tpIdx];
+                let buffCount = 0; let dpsCount = 0;
+                party.slots.forEach((cId, idx) => {
+                    if (idx === tsIdx || !cId) return;
+                    const c = partyPlan.get(cId);
+                    if (c && c.total_buff_score != null) buffCount++;
+                    else if (c && c.total_buff_score == null) dpsCount++;
+                });
+                if (charA.total_buff_score != null) buffCount++; else dpsCount++;
+                if (buffCount > 3) return 'Max 3 buffers per party.';
+                if (dpsCount > 3) return 'Max 3 DPS per party.';
+            }
+        }
+
+        // 5. Source Party Types (swap)
+        if (sMatch && charB && (!tMatch || tRId !== sRId || tpIdx !== spIdx)) {
+            const raid = current.raids.find(r => r.id === sRId);
+            if (raid) {
+                const party = raid.parties[spIdx];
+                let buffCount = 0; let dpsCount = 0;
+                party.slots.forEach((cId, idx) => {
+                    if (idx === ssIdx || !cId) return;
+                    const c = partyPlan.get(cId);
+                    if (c && c.total_buff_score != null) buffCount++;
+                    else if (c && c.total_buff_score == null) dpsCount++;
+                });
+                if (charB.total_buff_score != null) buffCount++; else dpsCount++;
+                if (buffCount > 3) return 'Swapping would exceed max 3 buffers in source party.';
+                if (dpsCount > 3) return 'Swapping would exceed max 3 DPS in source party.';
+            }
+        }
+
+        return null;
+    }
+
     document.addEventListener('dragover', (e) => {
         const dropzone = e.target.closest('.party-slot, .party-list');
         if (!dropzone || !draggedCardId) return;
@@ -1794,48 +1924,12 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
 
         if (dropzone.classList.contains('party-slot')) {
-            const charData = partyPlan.get(draggedCardId);
-            if (!charData) return;
-            const isBuffer = charData.total_buff_score != null;
-
-            // Check type count limits (max 3 of either type)
             const slotId = dropzone.dataset.slotId;
-            const parts = slotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
-            if (parts) {
-                const rId = parseInt(parts[1]);
-                const pIdx = parseInt(parts[2]);
-                const sIdx = parseInt(parts[3]);
-                const current = getActiveContent();
-                const raid = current ? current.raids.find(r => r.id === rId) : null;
-                if (raid) {
-                    const party = raid.parties[pIdx];
-                    const existingOccupant = party.slots[sIdx];
-                    // Only check limit if slot is empty or swapping with different type
-                    if (!existingOccupant || sourceSlotId === 'pool') {
-                        const counts = getPartyTypeCounts(party, sIdx);
-                        if (isBuffer && counts.buffCount >= 3) {
-                            dropzone.classList.add('drag-over', 'invalid');
-                            dropzone.title = 'Max 3 buffers per party.';
-                            return;
-                        }
-                        if (!isBuffer && counts.dpsCount >= 3) {
-                            dropzone.classList.add('drag-over', 'invalid');
-                            dropzone.title = 'Max 3 DPS per party.';
-                            return;
-                        }
-                    }
-                }
+            const errorMsg = validateDrag(draggedCardId, sourceSlotId, slotId);
 
-                if (rId && checkAdventureNameConflict(rId, draggedCardId, slotId)) {
-                    dropzone.classList.add('drag-over', 'invalid');
-                    dropzone.title = 'Cannot have multiple characters from the same Explorer Club in one raid.';
-                    return;
-                }
-            }
-
-            if (sourceSlotId === 'pool' && charData.adventureName && isGlobalAdventureNameLimitReached(charData.adventureName, draggedCardId)) {
+            if (errorMsg) {
                 dropzone.classList.add('drag-over', 'invalid');
-                dropzone.title = 'Global Explorer Club limit reached across all raids combined.';
+                dropzone.title = errorMsg;
                 return;
             }
 
@@ -1861,51 +1955,12 @@ document.addEventListener('DOMContentLoaded', () => {
         dropzone.classList.remove('drag-over', 'invalid');
 
         if (dropzone.classList.contains('party-slot')) {
-            const charData = partyPlan.get(draggedCardId);
-            if (!charData) return;
-            const isBuffer = charData.total_buff_score != null;
-
             const slotId = dropzone.dataset.slotId;
-            const parts = slotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
-            if (parts) {
-                const rId = parseInt(parts[1]);
-                const pIdx = parseInt(parts[2]);
-                const sIdx = parseInt(parts[3]);
-                const current = getActiveContent();
-                const raid = current ? current.raids.find(r => r.id === rId) : null;
-                if (raid) {
-                    const party = raid.parties[pIdx];
-                    const existingOccupant = party.slots[sIdx];
-                    if (!existingOccupant || sourceSlotId === 'pool') {
-                        const counts = getPartyTypeCounts(party, sIdx);
-                        if (isBuffer && counts.buffCount >= 3) {
-                            showToast('Cannot add a 4th buffer to this party.', 'warning');
-                            return;
-                        }
-                        if (!isBuffer && counts.dpsCount >= 3) {
-                            showToast('Cannot add a 4th DPS to this party.', 'warning');
-                            return;
-                        }
-                    }
-                }
-
-                if (rId) {
-                    const conflict = checkAdventureNameConflict(rId, draggedCardId, slotId);
-                    if (conflict === 'party') {
-                        showToast('Explorer Club is already in this party.', 'error');
-                        return;
-                    } else if (conflict === 'raid') {
-                        showToast('Explorer Club is already in this raid.', 'error');
-                        return;
-                    }
-                }
-            }
-
-            if (sourceSlotId === 'pool' && charData.adventureName) {
-                if (isGlobalAdventureNameLimitReached(charData.adventureName, draggedCardId)) {
-                    showToast(`Global Club Limit reached for ${charData.adventureName}.`, 'error');
-                    return;
-                }
+            const errorMsg = validateDrag(draggedCardId, sourceSlotId, slotId);
+            
+            if (errorMsg) {
+                showToast(errorMsg, 'error');
+                return;
             }
         }
 

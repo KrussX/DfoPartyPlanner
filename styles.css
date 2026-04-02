@@ -309,6 +309,14 @@ button {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    transition: width 0.2s ease, min-width 0.2s ease;
+}
+
+.panel-left.collapsed {
+    width: 0;
+    min-width: 0;
+    border-right: none;
+    overflow: hidden;
 }
 
 .panel-right {
@@ -594,8 +602,9 @@ button {
 /* ---- RAID CONTAINER ---- */
 .raids-container {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-content: flex-start;
 }
 
 .empty-raids-msg {
@@ -603,29 +612,58 @@ button {
     color: var(--text-light);
     padding: 3rem 1rem;
     font-size: 0.85rem;
+    width: 100%;
 }
 
-/* ---- RAID BLOCK ---- */
+/* ---- RAID BLOCK — compact table ---- */
 .raid-block {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 0.5rem;
+    overflow: hidden;
+    min-width: 320px;
+    flex: 1 1 340px;
+    max-width: 520px;
 }
 
 .raid-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0 0.25rem 0.4rem;
-    border-bottom: 1px solid var(--border-light);
-    margin-bottom: 0.4rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
 }
 
 .raid-title {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     font-weight: 700;
     margin: 0;
+}
+
+.raid-title-input {
+    background: none;
+    border: none;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--font);
+    color: var(--text);
+    width: auto;
+    min-width: 40px;
+    max-width: 160px;
+    outline: none;
+    cursor: text;
+    padding: 0.05rem 0.15rem;
+    border-radius: 3px;
+}
+
+.raid-title-input:hover {
+    background: var(--border-light);
+}
+
+.raid-title-input:focus {
+    background: var(--bg);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
 
 .raid-remove-btn {
@@ -644,113 +682,95 @@ button {
     background: rgba(220, 38, 38, 0.06);
 }
 
-/* ---- PARTIES: HORIZONTAL TABLE LAYOUT ---- */
+/* ---- PARTY TABLE LAYOUT ---- */
 .raid-parties {
     display: flex;
-    gap: 0.4rem;
 }
 
 .party-block {
     flex: 1;
-    background: var(--bg);
-    border-radius: 4px;
-    padding: 0.3rem;
-    border-top: 2px solid var(--border);
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    border-right: 1px solid var(--border-light);
+    border-top: 2px solid var(--border);
     min-width: 0;
 }
 
-.party-block.party-red {
-    border-top-color: var(--accent-red);
+.party-block:last-child {
+    border-right: none;
 }
 
-.party-block.party-red .party-header {
-    color: var(--accent-red);
-}
-
-.party-block.party-yellow {
-    border-top-color: var(--accent-yellow);
-}
-
-.party-block.party-yellow .party-header {
-    color: var(--accent-yellow);
-}
-
-.party-block.party-green {
-    border-top-color: var(--accent-green);
-}
-
-.party-block.party-green .party-header {
-    color: var(--accent-green);
-}
-
-.party-block.party-gray {
-    border-top-color: var(--text-light);
-}
-
-.party-block.party-gray .party-header {
-    color: var(--text-light);
-}
+.party-block.party-red  { border-top-color: var(--accent-red); }
+.party-block.party-red .party-header  { color: var(--accent-red); }
+.party-block.party-yellow  { border-top-color: var(--accent-yellow); }
+.party-block.party-yellow .party-header  { color: var(--accent-yellow); }
+.party-block.party-green  { border-top-color: var(--accent-green); }
+.party-block.party-green .party-header  { color: var(--accent-green); }
+.party-block.party-gray  { border-top-color: var(--text-light); }
+.party-block.party-gray .party-header  { color: var(--text-light); }
 
 .party-header {
     font-weight: 700;
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    padding: 0.1rem 0.2rem;
+    padding: 0.3rem 0.4rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-light);
+    text-align: center;
 }
 
-/* ---- PARTY SLOTS ---- */
+/* ---- PARTY SLOTS (table rows) ---- */
 .party-slot {
     background: var(--surface);
-    border: 1px dashed var(--border);
-    border-radius: 3px;
-    min-height: 26px;
+    border-bottom: 1px solid var(--border-light);
+    min-height: 36px;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     transition: background 0.15s;
     position: relative;
     overflow: hidden;
 }
 
+.party-slot:last-of-type {
+    border-bottom: none;
+}
+
 .party-slot.empty::before {
-    content: 'Drop here';
+    content: "—";
     position: absolute;
-    width: 100%;
-    text-align: center;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     color: var(--text-light);
-    font-size: 0.6rem;
-    font-style: italic;
+    font-size: 0.65rem;
+    opacity: 0.4;
     pointer-events: none;
-    opacity: 0.5;
 }
 
 .party-slot.drag-over {
     background: rgba(37, 99, 235, 0.06);
-    border-color: var(--accent-blue);
+    outline: 1px solid var(--accent-blue);
+    outline-offset: -1px;
 }
 
 .party-slot.drag-over.invalid {
     background: rgba(220, 38, 38, 0.06);
-    border-color: var(--accent-red);
+    outline-color: var(--accent-red);
 }
 
 .party-slot .result-card {
     margin: 0;
     width: 100%;
-    min-width: unset;
-    max-width: unset;
     border: none;
     border-left: 2px solid var(--border);
     background: transparent;
-    opacity: 1;
-    transform: none;
     animation: none;
     border-radius: 0;
-    padding: 0.15rem 0.3rem;
-    min-height: 22px;
+    padding: 0.3rem 0.45rem;
+    min-height: 34px;
+    font-size: 0.75rem;
 }
 
 .party-list.drag-over {
@@ -758,19 +778,28 @@ button {
     border-color: var(--accent-blue);
 }
 
-/* ---- PARTY FOOTER (damage) ---- */
+/* ---- PARTY FOOTER (damage totals) ---- */
 .party-footer {
-    margin-top: auto;
-    padding-top: 0.25rem;
+    padding: 0.25rem 0.4rem;
+    background: var(--bg);
     border-top: 1px solid var(--border-light);
     display: flex;
-    justify-content: space-between;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.1rem 0.4rem;
+}
+
+.party-footer-row {
+    display: flex;
     align-items: center;
-    gap: 0.3rem;
+    justify-content: space-between;
+    gap: 0.25rem;
+    flex: 1 1 100%;
+    min-width: 0;
 }
 
 .party-dmg-label {
-    font-size: 0.6rem;
+    font-size: 0.62rem;
     color: var(--text-light);
     text-transform: uppercase;
 }
@@ -780,17 +809,24 @@ button {
     font-weight: 700;
 }
 
-.party-dmg-value.dps-val {
-    color: var(--accent-blue);
-}
+.party-dmg-value.dps-val  { color: var(--accent-blue); }
+.party-dmg-value.buff-val { color: var(--accent-green); }
 
-.party-dmg-value.buff-val {
-    color: var(--accent-green);
-}
 
 /* ---- DRAGGING ---- */
 .result-card.dragging {
     opacity: 0.4 !important;
+}
+
+/* ---- RAID SEARCH MATCH HIGHLIGHT ---- */
+.party-slot .result-card.raid-search-match {
+    border-left-color: #f59e0b !important;
+    background: rgba(245, 158, 11, 0.08) !important;
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.25);
+}
+
+.party-slot .result-card.raid-search-match .card-name {
+    color: #f59e0b;
 }
 
 /* ---- SCROLLBARS ---- */
