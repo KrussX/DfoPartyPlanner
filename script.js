@@ -142,7 +142,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const addContentBtn = document.getElementById('add-content-btn');
     const editContentBtn = document.getElementById('edit-content-btn');
     const deleteContentBtn = document.getElementById('delete-content-btn');
-    // const autoPlanBtn = document.getElementById('auto-plan-btn'); // Hidden — not in use
+    // autoPlanBtn — declared above at line 111
 
     // Content Modal Controls
     const contentModal = document.getElementById('content-modal');
@@ -296,9 +296,12 @@ document.addEventListener('DOMContentLoaded', () => {
             el.style.display = isAdmin ? '' : 'none';
         });
 
-        // Add Raid: Visible to everyone if content is selected
+        // Add Raid / Auto Assign: Visible to everyone if content is selected
         if (addRaidBtn) {
             addRaidBtn.style.display = activeContentId ? '' : 'none';
+        }
+        if (autoPlanBtn) {
+            autoPlanBtn.style.display = (isAdmin && activeContentId) ? '' : 'none';
         }
     }
 
@@ -995,178 +998,181 @@ document.addEventListener('DOMContentLoaded', () => {
         logAction('add_raid', `added a new Raid (#${current.raidCounter}) to "${current.name}".`);
     });
 
-    // --- Auto Planner --- (DISABLED — feature hidden for now)
-    /*
-    autoPlanBtn.addEventListener('click', () => {
+    // --- Auto Planner ---
+    if (autoPlanBtn) autoPlanBtn.addEventListener('click', () => {
         if (!isAdmin) return;
-        // Buffers are deliberately ignored in Auto Planner
-
-        const poolDPS = [];
-        partyPlan.forEach((charData, charId) => {
-            const isBuffer = charData.total_buff_score != null;
-            if (!isBuffer) {
-                poolDPS.push({
-                    id: charId,
-                    data: charData,
-                    adv: charData.adventureName,
-                    power: charData.dps?.normal || 0
-                });
-            }
-        });
 
         const current = getActiveContent();
         if (!current) return;
 
-        poolDPS.sort((a, b) => b.power - a.power);
+        const existingRaidCount = current.raids.length;
+        const warningMsg = existingRaidCount > 0
+            ? `This will permanently replace all ${existingRaidCount} existing raid(s) in "${current.name}" with AI-generated assignments. This cannot be undone.`
+            : `This will auto-generate raid assignments for all DPS characters in the roster for "${current.name}".`;
 
-        const P = current.partySize || 3;
-        const size = P * 4;
-        const R_DPS = 3 * P; // 3 DPS per party
+        showConfirm(warningMsg, () => {
+            // Buffers are deliberately ignored in Auto Planner
+            const poolDPS = [];
+            partyPlan.forEach((charData, charId) => {
+                const isBuffer = charData.total_buff_score != null;
+                if (!isBuffer) {
+                    poolDPS.push({
+                        id: charId,
+                        data: charData,
+                        adv: charData.adventureName,
+                        power: charData.dps?.normal || 0
+                    });
+                }
+            });
 
-        let maxN = Math.floor(poolDPS.length / R_DPS);
-
-        const globalLimitStr = current.clubLimit;
-        const globalLimit = (globalLimitStr && parseInt(globalLimitStr) > 0) ? parseInt(globalLimitStr) : Infinity;
-
-        let bestRaids = null;
-        let globalClubUsage = new Map();
-
-        for (let N = maxN; N >= 1; N--) {
-            const testRaids = [];
-            for (let i = 0; i < N; i++) {
-                testRaids.push({ dps: [], advNames: new Set(), dpsSum: 0 });
+            if (poolDPS.length === 0) {
+                showToast('No valid DPS characters available to auto-assign!', 'warning');
+                return;
             }
 
-            const clubUsageCount = new Map();
+            poolDPS.sort((a, b) => b.power - a.power);
 
-            for (const char of poolDPS) {
-                const currentUsage = clubUsageCount.get(char.adv) || 0;
-                if (currentUsage >= globalLimit) continue;
+            const P = current.partySize || 3;
+            const size = P * 4;
+            const R_DPS = 3 * P; // 3 DPS per party
 
-                let bestBucket = null;
-                for (const bucket of testRaids) {
-                    if (bucket.dps.length < R_DPS && !bucket.advNames.has(char.adv)) {
-                        if (!bestBucket || bucket.dpsSum < bestBucket.dpsSum) {
-                            bestBucket = bucket;
+            let maxN = Math.floor(poolDPS.length / R_DPS);
+
+            const globalLimitStr = current.clubLimit;
+            const globalLimit = (globalLimitStr && parseInt(globalLimitStr) > 0) ? parseInt(globalLimitStr) : Infinity;
+
+            let bestRaids = null;
+            let globalClubUsage = new Map();
+
+            for (let N = maxN; N >= 1; N--) {
+                const testRaids = [];
+                for (let i = 0; i < N; i++) {
+                    testRaids.push({ dps: [], advNames: new Set(), dpsSum: 0 });
+                }
+
+                const clubUsageCount = new Map();
+
+                for (const char of poolDPS) {
+                    const currentUsage = clubUsageCount.get(char.adv) || 0;
+                    if (currentUsage >= globalLimit) continue;
+
+                    let bestBucket = null;
+                    for (const bucket of testRaids) {
+                        if (bucket.dps.length < R_DPS && !bucket.advNames.has(char.adv)) {
+                            if (!bestBucket || bucket.dpsSum < bestBucket.dpsSum) {
+                                bestBucket = bucket;
+                            }
                         }
                     }
+                    if (bestBucket) {
+                        bestBucket.dps.push(char);
+                        bestBucket.advNames.add(char.adv);
+                        bestBucket.dpsSum += char.power;
+                        clubUsageCount.set(char.adv, currentUsage + 1);
+                    }
                 }
-                if (bestBucket) {
-                    bestBucket.dps.push(char);
-                    bestBucket.advNames.add(char.adv);
-                    bestBucket.dpsSum += char.power;
-                    clubUsageCount.set(char.adv, currentUsage + 1);
-                }
-            }
 
-            let success = true;
-            for (const bucket of testRaids) {
-                if (bucket.dps.length < R_DPS) {
-                    success = false;
+                let success = true;
+                for (const bucket of testRaids) {
+                    if (bucket.dps.length < R_DPS) {
+                        success = false;
+                        break;
+                    }
+                }
+
+                if (success) {
+                    bestRaids = testRaids;
+                    globalClubUsage = clubUsageCount;
                     break;
                 }
             }
 
-            if (success) {
-                bestRaids = testRaids;
-                globalClubUsage = clubUsageCount;
-                break;
+            if (!bestRaids) bestRaids = [];
+
+            const assignedIds = new Set();
+            bestRaids.forEach(r => r.dps.forEach(c => assignedIds.add(c.id)));
+
+            const leftoverBucket = { dps: [], advNames: new Set(), dpsSum: 0 };
+            let addedLeftovers = false;
+
+            for (const char of poolDPS) {
+                if (assignedIds.has(char.id)) continue;
+                const currentUsage = globalClubUsage.get(char.adv) || 0;
+                if (currentUsage >= globalLimit) continue;
+
+                if (leftoverBucket.dps.length < R_DPS && !leftoverBucket.advNames.has(char.adv)) {
+                    leftoverBucket.dps.push(char);
+                    leftoverBucket.advNames.add(char.adv);
+                    leftoverBucket.dpsSum += char.power;
+                    globalClubUsage.set(char.adv, currentUsage + 1);
+                    addedLeftovers = true;
+                }
             }
-        }
 
-        if (!bestRaids) {
-            bestRaids = [];
-        }
+            if (addedLeftovers) bestRaids.push(leftoverBucket);
 
-        const assignedIds = new Set();
-        bestRaids.forEach(r => {
-            r.dps.forEach(c => assignedIds.add(c.id));
-        });
-
-        const leftoverBucket = { dps: [], advNames: new Set(), dpsSum: 0 };
-        let addedLeftovers = false;
-
-        for (const char of poolDPS) {
-            if (assignedIds.has(char.id)) continue;
-            const currentUsage = globalClubUsage.get(char.adv) || 0;
-            if (currentUsage >= globalLimit) continue;
-
-            if (leftoverBucket.dps.length < R_DPS && !leftoverBucket.advNames.has(char.adv)) {
-                leftoverBucket.dps.push(char);
-                leftoverBucket.advNames.add(char.adv);
-                leftoverBucket.dpsSum += char.power;
-                globalClubUsage.set(char.adv, currentUsage + 1);
-                addedLeftovers = true;
+            if (bestRaids.length === 0) {
+                showToast('No valid DPS characters available to auto-assign!', 'warning');
+                return;
             }
-        }
 
-        if (addedLeftovers) {
-            bestRaids.push(leftoverBucket);
-        }
+            current.raids.length = 0;
+            current.raidCounter = 0;
 
-        if (bestRaids.length === 0) {
-            alert(`No valid characters available!`);
-            return;
-        }
+            for (const bucket of bestRaids) {
+                current.raidCounter++;
+                const parties = [];
+                for (let pIdx = 0; pIdx < P; pIdx++) parties.push({ slots: [null, null, null, null] });
 
-        current.raids.length = 0;
-        current.raidCounter = 0;
+                bucket.dps.sort((a, b) => b.power - a.power);
 
-        for (const bucket of bestRaids) {
-            current.raidCounter++;
-            const parties = [];
-            for (let pIdx = 0; pIdx < P; pIdx++) parties.push({ slots: [null, null, null, null] });
+                for (const dChar of bucket.dps) {
+                    let lowestDps = Infinity;
+                    let targetParty = null;
+                    let targetSlotIdx = null;
 
-            bucket.dps.sort((a, b) => b.power - a.power);
-
-            for (const dChar of bucket.dps) {
-                let lowestDps = Infinity;
-                let targetParty = null;
-                let targetSlotIdx = null;
-
-                for (const p of parties) {
-                    let emptyIdx = -1;
-                    for (let sIdx = 0; sIdx < 3; sIdx++) {
-                        if (p.slots[sIdx] === null) {
-                            emptyIdx = sIdx;
-                            break;
-                        }
-                    }
-
-                    if (emptyIdx !== -1) {
-                        let dSum = dChar.power;
+                    for (const p of parties) {
+                        let emptyIdx = -1;
                         for (let sIdx = 0; sIdx < 3; sIdx++) {
-                            const s = p.slots[sIdx];
-                            if (s) {
-                                const sc = partyPlan.get(s);
-                                if (sc && sc.dps && sc.dps.normal) dSum += sc.dps.normal;
+                            if (p.slots[sIdx] === null) { emptyIdx = sIdx; break; }
+                        }
+
+                        if (emptyIdx !== -1) {
+                            let dSum = dChar.power;
+                            for (let sIdx = 0; sIdx < 3; sIdx++) {
+                                const s = p.slots[sIdx];
+                                if (s) {
+                                    const sc = partyPlan.get(s);
+                                    if (sc && sc.dps && sc.dps.normal) dSum += sc.dps.normal;
+                                }
+                            }
+                            if (dSum < lowestDps) {
+                                lowestDps = dSum;
+                                targetParty = p;
+                                targetSlotIdx = emptyIdx;
                             }
                         }
+                    }
 
-                        if (dSum < lowestDps) {
-                            lowestDps = dSum;
-                            targetParty = p;
-                            targetSlotIdx = emptyIdx;
-                        }
+                    if (targetParty && targetSlotIdx !== null) {
+                        targetParty.slots[targetSlotIdx] = dChar.id;
                     }
                 }
 
-                if (targetParty && targetSlotIdx !== null) {
-                    targetParty.slots[targetSlotIdx] = dChar.id;
-                }
+                current.raids.push({ id: current.raidCounter, size, parties });
             }
 
-            current.raids.push({ id: current.raidCounter, size, parties });
-        }
-
-        updateAllViews();
-        saveContents();
-        logAction('auto_plan', `auto-assigned DPS characters in "${current.name}".`);
-        if (raidsContainer.offsetTop) {
-            window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
-        }
+            const filledCount = bestRaids.filter(r => r.dps.length > 0).length;
+            updateAllViews();
+            saveContents();
+            logAction('auto_plan', `auto-assigned DPS into ${filledCount} raid(s) in "${current.name}".`);
+            showToast(`✅ Auto-assign complete! ${filledCount} raid(s) filled.`, 'success');
+            if (raidsContainer.offsetTop) {
+                window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
+            }
+        }, 'Auto Assign DPS', 'primary');
     });
-    */
+
 
     raidsContainer.addEventListener('click', (e) => {
         // Remove raid
