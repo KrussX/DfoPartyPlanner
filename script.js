@@ -141,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const contentSelect = document.getElementById('content-select');
     const addContentBtn = document.getElementById('add-content-btn');
     const editContentBtn = document.getElementById('edit-content-btn');
+    const duplicateContentBtn = document.getElementById('duplicate-content-btn');
     const deleteContentBtn = document.getElementById('delete-content-btn');
     // autoPlanBtn — declared above at line 111
 
@@ -583,6 +584,31 @@ document.addEventListener('DOMContentLoaded', () => {
         contentClubLimitInput.value = current.clubLimit || '';
         contentPartySizeInput.value = (current.partySize || 3).toString();
         contentModal.style.display = 'flex';
+    });
+
+    duplicateContentBtn.addEventListener('click', () => {
+        if (!isAdmin) return;
+        const current = getActiveContent();
+        if (!current) return;
+
+        showConfirm(`Are you sure you want to duplicate "${current.name}"? This will copy all raids and character assignments.`, () => {
+            // Create a deep copy
+            const copyContent = JSON.parse(JSON.stringify(current));
+            copyContent.id = 'content_' + Date.now();
+            copyContent.name = (copyContent.name || 'Content') + ' (Copy)';
+            
+            contents.push(copyContent);
+            activeContentId = copyContent.id;
+            localStorage.setItem('dfoActiveContentId', activeContentId);
+            
+            logAction('duplicate_content', `duplicated content "${current.name}" as "${copyContent.name}".`);
+            
+            saveContents();
+            renderContentSelect();
+            updateAdminUI();
+            updateAllViews();
+            showToast(`✅ Duplicated into "${copyContent.name}"`, 'success');
+        }, 'Duplicate Content', 'primary');
     });
 
     contentModalCancel.addEventListener('click', () => {
