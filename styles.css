@@ -621,9 +621,9 @@ button {
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
-    min-width: 320px;
-    flex: 1 1 340px;
-    max-width: 520px;
+    flex: 0 0 calc(33.333% - 0.4rem);
+    min-width: 0;
+    max-width: calc(33.333% - 0.4rem);
 }
 
 .raid-header {

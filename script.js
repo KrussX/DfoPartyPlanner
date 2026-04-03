@@ -667,7 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const yyyy = date.getFullYear();
         const mm = String(date.getMonth() + 1).padStart(2, '0');
         const dd = String(date.getDate()).padStart(2, '0');
-        
+
         const activeContent = getActiveContent();
         const contentName = activeContent ? activeContent.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase() : 'all';
         const filename = `dfo_planner_${contentName}_${yyyy}-${mm}-${dd}.json`;
@@ -1494,7 +1494,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${removeBtnStr}
                 <div class="card-info">
                     <div class="card-name">${char.characterName}</div>
-                    <div class="card-sub">${char.adventureName || '?'}</div>
+                    <div class="card-sub">${char.adventureName || '?'} · ${(char.jobGrowName || char.jobName || '').replace(/^Neo:\s*/i, '')}</div>
                 </div>
                 <div class="card-stats">
                     <div class="card-score">${scoreDisplay}</div>
@@ -1743,11 +1743,11 @@ document.addEventListener('DOMContentLoaded', () => {
             partyPlan.delete(charId);
             removeCharFromRaid(charId);
             card.classList.remove('selected');
-            logAction('remove_pool', `removed ${charData.characterName} from Roster Pool.`);
+            logAction('remove_pool', `removed ${charData.characterName} from Waiting Room.`);
         } else {
             partyPlan.set(charId, charData);
             card.classList.add('selected');
-            logAction('add_pool', `added ${charData.characterName} to Roster Pool.`);
+            logAction('add_pool', `added ${charData.characterName} to Waiting Room.`);
         }
         updateAllViews();
         savePartyPlan();
@@ -1769,7 +1769,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateAllViews();
             savePartyPlan();
             saveContents();
-            if (charData) logAction('remove_pool', `removed ${charData.characterName} from Roster Pool.`);
+            if (charData) logAction('remove_pool', `removed ${charData.characterName} from Waiting Room.`);
 
             const searchCard = searchResults.querySelector(`.result-card[data-id="${charId}"]`);
             if (searchCard) {
@@ -1957,7 +1957,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dropzone.classList.contains('party-slot')) {
             const slotId = dropzone.dataset.slotId;
             const errorMsg = validateDrag(draggedCardId, sourceSlotId, slotId);
-            
+
             if (errorMsg) {
                 showToast(errorMsg, 'error');
                 return;
@@ -1978,7 +1978,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const charA_Data = partyPlan.get(charA);
         if (charA_Data) {
-            let targetName = targetSlotId === 'pool' ? 'Roster Pool' : 'a Raid Slot';
+            let targetName = targetSlotId === 'pool' ? 'Waiting Room' : 'a Raid Slot';
             const tMatch = targetSlotId.match(/raid-(\d+)-party-(\d+)-slot-(\d+)/);
             if (tMatch) {
                 const trId = parseInt(tMatch[1]);
@@ -2070,7 +2070,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             renderResultCards(filtered);
 
-            searchStatus.textContent = `✅ ${filtered.length} of ${allResults.length} character(s) meet the requirements.`;
+            searchStatus.textContent = `Click on the characters you want to add or remove from the Waiting Room`;
             searchStatus.className = 'search-status success';
 
         } catch (err) {
