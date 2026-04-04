@@ -640,46 +640,6 @@ button {
     width: 100%;
 }
 
-.raid-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.35rem 0.5rem;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-}
-
-.raid-title {
-    font-size: 0.85rem;
-    font-weight: 700;
-    margin: 0;
-}
-
-.raid-title-input {
-    background: none;
-    border: none;
-    font-size: 0.8rem;
-    font-weight: 700;
-    font-family: var(--font);
-    color: var(--text);
-    width: auto;
-    min-width: 40px;
-    max-width: 160px;
-    outline: none;
-    cursor: text;
-    padding: 0.05rem 0.15rem;
-    border-radius: 3px;
-}
-
-.raid-title-input:hover {
-    background: var(--border-light);
-}
-
-.raid-title-input:focus {
-    background: var(--bg);
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
-}
-
 .raid-remove-btn {
     background: none;
     border: none;
@@ -738,7 +698,7 @@ button {
 .party-slot {
     background: var(--surface);
     border-bottom: 1px solid var(--border-light);
-    min-height: 36px;
+    height: 46px; 
     display: flex;
     align-items: stretch;
     transition: background 0.15s;
@@ -880,6 +840,9 @@ input[type="number"] {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
 }
 
 .raid-title-input {
@@ -889,18 +852,21 @@ input[type="number"] {
     background: transparent;
     border: 1px solid transparent;
     border-radius: 4px;
-    padding: 2px 6px;
-    margin-left: -6px;
-    width: 250px;
+    padding: 4px 8px;
+    flex-grow: 1;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    margin-right: 0.5rem;
     transition: background 0.2s, border-color 0.2s;
     font-family: inherit;
+    outline: none;
 }
 
 .raid-title-input:hover,
 .raid-title-input:focus {
     background: var(--bg);
     border-color: var(--border);
-    outline: none;
 }
 
 /* ---- RESPONSIVE ---- */
