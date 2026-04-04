@@ -1533,6 +1533,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderRaids() {
         raidsContainer.innerHTML = '';
         const current = getActiveContent();
+        
+        raidsContainer.className = 'raids-container';
+        if (current && current.partySize) {
+            raidsContainer.classList.add(`parties-${current.partySize}`);
+        }
 
         if (!current || !current.raids || current.raids.length === 0) {
             raidsContainer.innerHTML = '<div class="empty-raids-msg"><p>No raids yet. Click <strong>Add Raid</strong> or <strong>Auto assign DPS</strong> to get started.</p></div>';

@@ -526,15 +526,16 @@ button {
 
 .card-name {
     font-weight: 600;
-    font-size: 0.75rem;
+    font-size: clamp(13px, 1vw + 6px, 15px);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     line-height: 1.15;
+    flex-shrink: 1;
 }
 
 .card-sub {
-    font-size: 0.65rem;
+    font-size: clamp(11px, 0.8vw + 5px, 13px);
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -562,7 +563,7 @@ button {
 
 .card-score {
     font-weight: 700;
-    font-size: 0.75rem;
+    font-size: clamp(13px, 1vw + 6px, 15px);
     font-variant-numeric: tabular-nums;
 }
 
@@ -601,10 +602,23 @@ button {
 
 /* ---- RAID CONTAINER ---- */
 .raids-container {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.6rem;
+    display: grid;
+    /* Fallback if no class is present */
+    grid-template-columns: repeat(auto-fit, minmax(640px, 1fr));
+    gap: 0.8rem;
     align-content: flex-start;
+}
+
+.raids-container.parties-1 {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.raids-container.parties-2 {
+    grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+}
+
+.raids-container.parties-3 {
+    grid-template-columns: repeat(auto-fit, minmax(640px, 1fr));
 }
 
 .empty-raids-msg {
@@ -613,6 +627,7 @@ button {
     padding: 3rem 1rem;
     font-size: 0.85rem;
     width: 100%;
+    grid-column: 1 / -1; /* spans full width of grid */
 }
 
 /* ---- RAID BLOCK — compact table ---- */
@@ -621,9 +636,8 @@ button {
     border: 1px solid var(--border);
     border-radius: 6px;
     overflow: hidden;
-    flex: 0 0 calc(33.333% - 0.4rem);
     min-width: 0;
-    max-width: calc(33.333% - 0.4rem);
+    width: 100%;
 }
 
 .raid-header {
@@ -769,8 +783,7 @@ button {
     animation: none;
     border-radius: 0;
     padding: 0.3rem 0.45rem;
-    min-height: 34px;
-    font-size: 0.75rem;
+    min-height: 40px; /* bumped slightly to accommodate larger font */
 }
 
 .party-list.drag-over {
