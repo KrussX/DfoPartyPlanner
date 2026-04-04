@@ -167,10 +167,10 @@ document.addEventListener('DOMContentLoaded', () => {
     searchToggleHeader.addEventListener('click', () => {
         if (searchContent.style.display === 'none') {
             searchContent.style.display = 'block';
-            toggleSearchBtn.textContent = '▾';
+            toggleSearchBtn.textContent = 'Hide Search ▾';
         } else {
             searchContent.style.display = 'none';
-            toggleSearchBtn.textContent = '▸';
+            toggleSearchBtn.textContent = 'Show Search ▸';
         }
     });
 
