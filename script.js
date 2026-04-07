@@ -1674,28 +1674,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Build pool array (unassigned characters only)
-        let poolChars = [];
+        let basePoolChars = [];
         partyPlan.forEach((charData, charId) => {
             if (!assigned.has(charId)) {
-                poolChars.push({ charId, charData });
+                basePoolChars.push({ charId, charData });
             }
         });
 
-        // Apply pool filter
-        if (poolFilter === 'dps') {
-            poolChars = poolChars.filter(c => c.charData.total_buff_score == null);
-        } else if (poolFilter === 'buff') {
-            poolChars = poolChars.filter(c => c.charData.total_buff_score != null);
-        }
-
-        // Apply pool search
+        // Apply pool search first so counts reflect the search
         if (poolSearchQuery) {
             const q = poolSearchQuery.toLowerCase();
-            poolChars = poolChars.filter(c => {
+            basePoolChars = basePoolChars.filter(c => {
                 const name = (c.charData.characterName || '').toLowerCase();
                 const adv = (c.charData.adventureName || '').toLowerCase();
                 return name.includes(q) || adv.includes(q);
             });
+        }
+
+        // Count for each filter
+        const allCount = basePoolChars.length;
+        const dpsCount = basePoolChars.filter(c => c.charData.total_buff_score == null).length;
+        const buffCount = basePoolChars.filter(c => c.charData.total_buff_score != null).length;
+
+        // Update filter button texts
+        const btnAll = document.querySelector('.pool-filter-btn[data-filter="all"]');
+        const btnDps = document.querySelector('.pool-filter-btn[data-filter="dps"]');
+        const btnBuff = document.querySelector('.pool-filter-btn[data-filter="buff"]');
+        if (btnAll) btnAll.textContent = `All`;
+        if (btnDps) btnDps.textContent = `DPS (${dpsCount})`;
+        if (btnBuff) btnBuff.textContent = `Buff (${buffCount})`;
+
+        // Apply pool filter
+        let poolChars = basePoolChars;
+        if (poolFilter === 'dps') {
+            poolChars = poolChars.filter(c => c.charData.total_buff_score == null);
+        } else if (poolFilter === 'buff') {
+            poolChars = poolChars.filter(c => c.charData.total_buff_score != null);
         }
 
         // Apply pool sort (highest to lowest)
