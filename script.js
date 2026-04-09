@@ -1047,180 +1047,522 @@ document.addEventListener('DOMContentLoaded', () => {
         logAction('add_raid', `added a new Raid (#${current.raidCounter}) to "${current.name}".`);
     });
 
-    // --- Auto Planner ---
+    // --- Auto Assign Everything ---
+    const autoAssignModal = document.getElementById('auto-assign-modal');
+    const autoAssignForm = document.getElementById('auto-assign-form');
+    const autoAssignCancel = document.getElementById('auto-assign-cancel');
+    const autoAssignPartiesConfig = document.getElementById('auto-assign-parties-config');
+
+    const PARTY_COLORS = ['red', 'yellow', 'green'];
+    const PARTY_NAMES = ['Red Party', 'Yellow Party', 'Green Party'];
+
+    if (autoAssignCancel) {
+        autoAssignCancel.addEventListener('click', () => {
+            autoAssignModal.style.display = 'none';
+        });
+    }
+
+    function buildAutoAssignPartyFields(partySize) {
+        let html = '<div class="auto-assign-parties-grid">';
+        for (let p = 0; p < partySize; p++) {
+            const color = PARTY_COLORS[p] || 'gray';
+            const name = PARTY_NAMES[p] || `Party ${p + 1}`;
+            html += `
+                <div class="auto-assign-party-card party-${color}">
+                    <div class="auto-assign-party-title">${name}</div>
+                    <div class="auto-assign-party-fields">
+                        <div class="form-field">
+                            <label class="form-label">Target DPS <span class="form-hint">(M)</span></label>
+                            <input type="number" class="form-input auto-target-dps" data-party="${p}" placeholder="e.g. 150" min="0" step="any">
+                        </div>
+                        <div class="form-field">
+                            <label class="form-label">Target Buff <span class="form-hint">(M)</span></label>
+                            <input type="number" class="form-input auto-target-buff" data-party="${p}" placeholder="e.g. 50" min="0" step="any">
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        html += '</div>';
+        autoAssignPartiesConfig.innerHTML = html;
+    }
+
     if (autoPlanBtn) autoPlanBtn.addEventListener('click', () => {
+        if (!isAdmin) return;
+        const current = getActiveContent();
+        if (!current) return;
+
+        const P = current.partySize || 3;
+        buildAutoAssignPartyFields(P);
+
+        // Show configuration modal
+        autoAssignModal.style.display = 'flex';
+    });
+
+    if (autoAssignForm) autoAssignForm.addEventListener('submit', (e) => {
+        e.preventDefault();
         if (!isAdmin) return;
 
         const current = getActiveContent();
         if (!current) return;
 
+        const P = current.partySize || 3;
+
+        // Read per-party targets
+        const partyTargets = [];
+        for (let p = 0; p < P; p++) {
+            const dpsInput = autoAssignPartiesConfig.querySelector(`.auto-target-dps[data-party="${p}"]`);
+            const buffInput = autoAssignPartiesConfig.querySelector(`.auto-target-buff[data-party="${p}"]`);
+            const targetDps = (parseFloat(dpsInput?.value) || 0) * 1_000_000;
+            const targetBuff = (parseFloat(buffInput?.value) || 0) * 1_000_000;
+            partyTargets.push({ dps: targetDps, buff: targetBuff });
+        }
+
+        autoAssignModal.style.display = 'none';
+
         const existingRaidCount = current.raids.length;
         const warningMsg = existingRaidCount > 0
-            ? `This will permanently replace all ${existingRaidCount} existing raid(s) in "${current.name}" with AI-generated assignments. This cannot be undone.`
-            : `This will auto-generate raid assignments for all DPS characters in the roster for "${current.name}".`;
+            ? `This will permanently replace all ${existingRaidCount} existing raid(s) in "${current.name}" with auto-generated assignments. This cannot be undone.`
+            : `This will auto-generate raid assignments for all characters in the roster for "${current.name}".`;
 
         showConfirm(warningMsg, () => {
-            // Buffers are deliberately ignored in Auto Planner
-            const poolDPS = [];
-            partyPlan.forEach((charData, charId) => {
-                const isBuffer = charData.total_buff_score != null;
-                if (!isBuffer) {
-                    poolDPS.push({
-                        id: charId,
-                        data: charData,
-                        adv: charData.adventureName,
-                        power: charData.dps?.normal || 0
+            runAutoAssign(current, partyTargets);
+        }, 'Run Auto Assign', 'primary');
+    });
+
+    function runAutoAssign(content, partyTargets) {
+        // --- Step 1: Gather pools ---
+        const poolDPS = [];
+        const poolBuffers = [];
+
+        partyPlan.forEach((charData, charId) => {
+            const isBuffer = charData.total_buff_score != null;
+            if (isBuffer) {
+                poolBuffers.push({
+                    id: charId,
+                    data: charData,
+                    adv: charData.adventureName,
+                    power: charData.total_buff_score || 0
+                });
+            } else {
+                poolDPS.push({
+                    id: charId,
+                    data: charData,
+                    adv: charData.adventureName,
+                    power: charData.dps?.normal || 0
+                });
+            }
+        });
+
+        if (poolDPS.length === 0 && poolBuffers.length === 0) {
+            showToast('No characters available to auto-assign!', 'warning');
+            return;
+        }
+
+        // Sort both pools descending by score
+        poolDPS.sort((a, b) => b.power - a.power);
+        poolBuffers.sort((a, b) => b.power - a.power);
+
+        const P = content.partySize || 3; // parties per raid
+        const DPS_PER_PARTY = 3;
+        const BUFF_PER_PARTY = 1;
+        const dpsPerRaid = DPS_PER_PARTY * P;
+        const size = P * 4;
+
+        const globalLimitStr = content.clubLimit;
+        const globalLimit = (globalLimitStr && parseInt(globalLimitStr) > 0) ? parseInt(globalLimitStr) : Infinity;
+
+        // --- Step 2: Determine max raids (driven by DPS count) ---
+        let maxN = Math.max(1, Math.floor(poolDPS.length / dpsPerRaid));
+
+        // --- Step 3: Find best N where all DPS fit respecting club limits ---
+        let raidBuckets = null;
+        let globalClubUsage = new Map();
+
+        for (let N = maxN; N >= 1; N--) {
+            const testBuckets = [];
+            for (let i = 0; i < N; i++) {
+                const parties = [];
+                for (let p = 0; p < P; p++) {
+                    parties.push({
+                        dps: [], buffers: [], advNames: new Set(),
+                        dpsSum: 0, buffSum: 0,
+                        partyIdx: p // Track which party slot (Red=0, Yellow=1, Green=2)
                     });
                 }
-            });
-
-            if (poolDPS.length === 0) {
-                showToast('No valid DPS characters available to auto-assign!', 'warning');
-                return;
+                testBuckets.push({ parties, raidAdvNames: new Set() });
             }
 
-            poolDPS.sort((a, b) => b.power - a.power);
+            const clubUsage = new Map();
 
-            const P = current.partySize || 3;
-            const size = P * 4;
-            const R_DPS = 3 * P; // 3 DPS per party
+            // Assign DPS via greedy balancing using per-party targets
+            for (const char of poolDPS) {
+                const currentUsage = clubUsage.get(char.adv) || 0;
+                if (currentUsage >= globalLimit) continue;
 
-            let maxN = Math.floor(poolDPS.length / R_DPS);
+                let bestParty = null;
+                let bestRaidIdx = -1;
+                let bestDeviation = Infinity;
 
-            const globalLimitStr = current.clubLimit;
-            const globalLimit = (globalLimitStr && parseInt(globalLimitStr) > 0) ? parseInt(globalLimitStr) : Infinity;
+                for (let rIdx = 0; rIdx < testBuckets.length; rIdx++) {
+                    const raid = testBuckets[rIdx];
+                    if (raid.raidAdvNames.has(char.adv)) continue;
 
-            let bestRaids = null;
-            let globalClubUsage = new Map();
+                    for (const party of raid.parties) {
+                        if (party.dps.length >= DPS_PER_PARTY) continue;
 
-            for (let N = maxN; N >= 1; N--) {
-                const testRaids = [];
-                for (let i = 0; i < N; i++) {
-                    testRaids.push({ dps: [], advNames: new Set(), dpsSum: 0 });
-                }
-
-                const clubUsageCount = new Map();
-
-                for (const char of poolDPS) {
-                    const currentUsage = clubUsageCount.get(char.adv) || 0;
-                    if (currentUsage >= globalLimit) continue;
-
-                    let bestBucket = null;
-                    for (const bucket of testRaids) {
-                        if (bucket.dps.length < R_DPS && !bucket.advNames.has(char.adv)) {
-                            if (!bestBucket || bucket.dpsSum < bestBucket.dpsSum) {
-                                bestBucket = bucket;
-                            }
+                        // Use this party's specific target
+                        const target = partyTargets[party.partyIdx]?.dps || 0;
+                        const deviation = party.dpsSum - target;
+                        if (deviation < bestDeviation) {
+                            bestDeviation = deviation;
+                            bestParty = party;
+                            bestRaidIdx = rIdx;
                         }
                     }
-                    if (bestBucket) {
-                        bestBucket.dps.push(char);
-                        bestBucket.advNames.add(char.adv);
-                        bestBucket.dpsSum += char.power;
-                        clubUsageCount.set(char.adv, currentUsage + 1);
-                    }
                 }
 
-                let success = true;
-                for (const bucket of testRaids) {
-                    if (bucket.dps.length < R_DPS) {
-                        success = false;
+                if (bestParty) {
+                    bestParty.dps.push(char);
+                    bestParty.dpsSum += char.power;
+                    bestParty.advNames.add(char.adv);
+                    testBuckets[bestRaidIdx].raidAdvNames.add(char.adv);
+                    clubUsage.set(char.adv, currentUsage + 1);
+                }
+            }
+
+            // Check if all raids are full (DPS-wise)
+            let allAssigned = true;
+            for (const bucket of testBuckets) {
+                for (const party of bucket.parties) {
+                    if (party.dps.length < DPS_PER_PARTY) {
+                        allAssigned = false;
+                        break;
+                    }
+                }
+                if (!allAssigned) break;
+            }
+
+            if (allAssigned) {
+                raidBuckets = testBuckets;
+                globalClubUsage = clubUsage;
+                break;
+            }
+        }
+
+        // Fallback: if even 1 raid can't fill, use 1 raid anyway
+        if (!raidBuckets) {
+            raidBuckets = [];
+            const parties = [];
+            for (let p = 0; p < P; p++) {
+                parties.push({
+                    dps: [], buffers: [], advNames: new Set(),
+                    dpsSum: 0, buffSum: 0, partyIdx: p
+                });
+            }
+            raidBuckets.push({ parties, raidAdvNames: new Set() });
+            globalClubUsage = new Map();
+
+            for (const char of poolDPS) {
+                const currentUsage = globalClubUsage.get(char.adv) || 0;
+                if (currentUsage >= globalLimit) continue;
+
+                let bestParty = null;
+                let bestDeviation = Infinity;
+
+                for (const party of raidBuckets[0].parties) {
+                    if (party.dps.length >= DPS_PER_PARTY) continue;
+                    const target = partyTargets[party.partyIdx]?.dps || 0;
+                    const deviation = party.dpsSum - target;
+                    if (deviation < bestDeviation) {
+                        bestDeviation = deviation;
+                        bestParty = party;
+                    }
+                }
+                if (bestParty) {
+                    bestParty.dps.push(char);
+                    bestParty.dpsSum += char.power;
+                    bestParty.advNames.add(char.adv);
+                    raidBuckets[0].raidAdvNames.add(char.adv);
+                    globalClubUsage.set(char.adv, currentUsage + 1);
+                }
+            }
+        }
+
+        // --- Step 4: Assign Buffers using per-party targets ---
+        for (const char of poolBuffers) {
+            const currentUsage = globalClubUsage.get(char.adv) || 0;
+            if (currentUsage >= globalLimit) continue;
+
+            let bestParty = null;
+            let bestRaidIdx = -1;
+            let bestDeviation = Infinity;
+
+            for (let rIdx = 0; rIdx < raidBuckets.length; rIdx++) {
+                const raid = raidBuckets[rIdx];
+                if (raid.raidAdvNames.has(char.adv)) continue;
+
+                for (const party of raid.parties) {
+                    if (party.buffers.length >= BUFF_PER_PARTY) continue;
+
+                    const target = partyTargets[party.partyIdx]?.buff || 0;
+                    const deviation = party.buffSum - target;
+                    if (deviation < bestDeviation) {
+                        bestDeviation = deviation;
+                        bestParty = party;
+                        bestRaidIdx = rIdx;
+                    }
+                }
+            }
+
+            if (bestParty) {
+                bestParty.buffers.push(char);
+                bestParty.buffSum += char.power;
+                bestParty.advNames.add(char.adv);
+                raidBuckets[bestRaidIdx].raidAdvNames.add(char.adv);
+                globalClubUsage.set(char.adv, currentUsage + 1);
+            }
+        }
+
+        // --- Step 5: Gap Minimization (consecutive raids per explorer) ---
+        const explorerRaidMap = new Map();
+        raidBuckets.forEach((raid, rIdx) => {
+            raid.parties.forEach(party => {
+                [...party.dps, ...party.buffers].forEach(char => {
+                    if (!explorerRaidMap.has(char.adv)) explorerRaidMap.set(char.adv, new Set());
+                    explorerRaidMap.get(char.adv).add(rIdx);
+                });
+            });
+        });
+
+        const MAX_SWAP_ITERATIONS = 200;
+        let swapCount = 0;
+
+        for (const [advName, raidIndices] of explorerRaidMap) {
+            if (swapCount >= MAX_SWAP_ITERATIONS) break;
+
+            const indices = Array.from(raidIndices).sort((a, b) => a - b);
+            if (indices.length <= 1) continue;
+
+            const span = indices[indices.length - 1] - indices[0];
+            const idealSpan = indices.length - 1;
+            if (span <= idealSpan) continue;
+
+            for (let i = 0; i < indices.length && swapCount < MAX_SWAP_ITERATIONS; i++) {
+                const currentRaidIdx = indices[i];
+                const targetStart = indices[0];
+                const idealIdx = targetStart + i;
+
+                if (currentRaidIdx === idealIdx) continue;
+                if (idealIdx < 0 || idealIdx >= raidBuckets.length) continue;
+
+                const sourceRaid = raidBuckets[currentRaidIdx];
+                const targetRaid = raidBuckets[idealIdx];
+
+                let sourceChar = null;
+                let sourceParty = null;
+                let sourceIsBuffer = false;
+
+                for (const party of sourceRaid.parties) {
+                    const dpsMatch = party.dps.find(c => c.adv === advName);
+                    if (dpsMatch) {
+                        sourceChar = dpsMatch;
+                        sourceParty = party;
+                        sourceIsBuffer = false;
+                        break;
+                    }
+                    const buffMatch = party.buffers.find(c => c.adv === advName);
+                    if (buffMatch) {
+                        sourceChar = buffMatch;
+                        sourceParty = party;
+                        sourceIsBuffer = true;
                         break;
                     }
                 }
 
-                if (success) {
-                    bestRaids = testRaids;
-                    globalClubUsage = clubUsageCount;
-                    break;
-                }
-            }
+                if (!sourceChar) continue;
+                if (targetRaid.raidAdvNames.has(advName)) continue;
 
-            if (!bestRaids) bestRaids = [];
+                let bestSwapCandidate = null;
+                let bestSwapParty = null;
+                let bestSwapScore = Infinity;
 
-            const assignedIds = new Set();
-            bestRaids.forEach(r => r.dps.forEach(c => assignedIds.add(c.id)));
+                for (const tParty of targetRaid.parties) {
+                    const pool = sourceIsBuffer ? tParty.buffers : tParty.dps;
+                    for (const candidate of pool) {
+                        if (sourceRaid.raidAdvNames.has(candidate.adv) && candidate.adv !== advName) continue;
+                        if (candidate.adv !== advName && sourceRaid.raidAdvNames.has(candidate.adv)) continue;
 
-            const leftoverBucket = { dps: [], advNames: new Set(), dpsSum: 0 };
-            let addedLeftovers = false;
-
-            for (const char of poolDPS) {
-                if (assignedIds.has(char.id)) continue;
-                const currentUsage = globalClubUsage.get(char.adv) || 0;
-                if (currentUsage >= globalLimit) continue;
-
-                if (leftoverBucket.dps.length < R_DPS && !leftoverBucket.advNames.has(char.adv)) {
-                    leftoverBucket.dps.push(char);
-                    leftoverBucket.advNames.add(char.adv);
-                    leftoverBucket.dpsSum += char.power;
-                    globalClubUsage.set(char.adv, currentUsage + 1);
-                    addedLeftovers = true;
-                }
-            }
-
-            if (addedLeftovers) bestRaids.push(leftoverBucket);
-
-            if (bestRaids.length === 0) {
-                showToast('No valid DPS characters available to auto-assign!', 'warning');
-                return;
-            }
-
-            current.raids.length = 0;
-            current.raidCounter = 0;
-
-            for (const bucket of bestRaids) {
-                current.raidCounter++;
-                const parties = [];
-                for (let pIdx = 0; pIdx < P; pIdx++) parties.push({ slots: [null, null, null, null] });
-
-                bucket.dps.sort((a, b) => b.power - a.power);
-
-                for (const dChar of bucket.dps) {
-                    let lowestDps = Infinity;
-                    let targetParty = null;
-                    let targetSlotIdx = null;
-
-                    for (const p of parties) {
-                        let emptyIdx = -1;
-                        for (let sIdx = 0; sIdx < 3; sIdx++) {
-                            if (p.slots[sIdx] === null) { emptyIdx = sIdx; break; }
-                        }
-
-                        if (emptyIdx !== -1) {
-                            let dSum = dChar.power;
-                            for (let sIdx = 0; sIdx < 3; sIdx++) {
-                                const s = p.slots[sIdx];
-                                if (s) {
-                                    const sc = partyPlan.get(s);
-                                    if (sc && sc.dps && sc.dps.normal) dSum += sc.dps.normal;
-                                }
-                            }
-                            if (dSum < lowestDps) {
-                                lowestDps = dSum;
-                                targetParty = p;
-                                targetSlotIdx = emptyIdx;
-                            }
+                        const scoreDiff = Math.abs(sourceChar.power - candidate.power);
+                        if (scoreDiff < bestSwapScore) {
+                            bestSwapScore = scoreDiff;
+                            bestSwapCandidate = candidate;
+                            bestSwapParty = tParty;
                         }
                     }
+                }
 
-                    if (targetParty && targetSlotIdx !== null) {
-                        targetParty.slots[targetSlotIdx] = dChar.id;
+                if (!bestSwapCandidate) continue;
+
+                // Tolerance check using per-party targets
+                const sourceTargetKey = sourceIsBuffer ? 'buff' : 'dps';
+                const sourceTarget = partyTargets[sourceParty.partyIdx]?.[sourceTargetKey] || 0;
+                const swapTarget = partyTargets[bestSwapParty.partyIdx]?.[sourceTargetKey] || 0;
+
+                if (sourceTarget > 0 || swapTarget > 0) {
+                    const scoreKey = sourceIsBuffer ? 'buffSum' : 'dpsSum';
+                    const tolerance = Math.max(sourceTarget, swapTarget) * 0.15;
+                    const newSourceScore = sourceParty[scoreKey] - sourceChar.power + bestSwapCandidate.power;
+                    const newSwapScore = bestSwapParty[scoreKey] - bestSwapCandidate.power + sourceChar.power;
+
+                    if ((sourceTarget > 0 && Math.abs(newSourceScore - sourceTarget) > tolerance + Math.abs(sourceParty[scoreKey] - sourceTarget)) ||
+                        (swapTarget > 0 && Math.abs(newSwapScore - swapTarget) > tolerance + Math.abs(bestSwapParty[scoreKey] - swapTarget))) {
+                        continue;
                     }
                 }
 
-                current.raids.push({ id: current.raidCounter, size, parties });
+                // Perform the swap
+                const sourcePool = sourceIsBuffer ? sourceParty.buffers : sourceParty.dps;
+                const targetPool = sourceIsBuffer ? bestSwapParty.buffers : bestSwapParty.dps;
+                const scoreKey = sourceIsBuffer ? 'buffSum' : 'dpsSum';
+
+                const srcIdx = sourcePool.indexOf(sourceChar);
+                if (srcIdx !== -1) sourcePool.splice(srcIdx, 1);
+                sourceParty[scoreKey] -= sourceChar.power;
+                sourceParty.advNames.delete(sourceChar.adv);
+
+                const tgtIdx = targetPool.indexOf(bestSwapCandidate);
+                if (tgtIdx !== -1) targetPool.splice(tgtIdx, 1);
+                bestSwapParty[scoreKey] -= bestSwapCandidate.power;
+                bestSwapParty.advNames.delete(bestSwapCandidate.adv);
+
+                targetPool.push(sourceChar);
+                bestSwapParty[scoreKey] += sourceChar.power;
+                bestSwapParty.advNames.add(sourceChar.adv);
+
+                sourcePool.push(bestSwapCandidate);
+                sourceParty[scoreKey] += bestSwapCandidate.power;
+                sourceParty.advNames.add(bestSwapCandidate.adv);
+
+                sourceRaid.raidAdvNames = new Set();
+                sourceRaid.parties.forEach(p => {
+                    [...p.dps, ...p.buffers].forEach(c => sourceRaid.raidAdvNames.add(c.adv));
+                });
+                targetRaid.raidAdvNames = new Set();
+                targetRaid.parties.forEach(p => {
+                    [...p.dps, ...p.buffers].forEach(c => targetRaid.raidAdvNames.add(c.adv));
+                });
+
+                swapCount++;
+            }
+        }
+
+        // --- Step 6: Collect unassigned into a leftover raid ---
+        const assignedIds = new Set();
+        raidBuckets.forEach(raid => {
+            raid.parties.forEach(party => {
+                [...party.dps, ...party.buffers].forEach(c => assignedIds.add(c.id));
+            });
+        });
+
+        const leftoverDPS = poolDPS.filter(c => !assignedIds.has(c.id));
+        const leftoverBuffers = poolBuffers.filter(c => !assignedIds.has(c.id));
+
+        if (leftoverDPS.length > 0 || leftoverBuffers.length > 0) {
+            const leftoverParties = [];
+            for (let p = 0; p < P; p++) {
+                leftoverParties.push({
+                    dps: [], buffers: [], advNames: new Set(),
+                    dpsSum: 0, buffSum: 0, partyIdx: p
+                });
+            }
+            const leftoverRaid = { parties: leftoverParties, raidAdvNames: new Set() };
+
+            for (const char of leftoverDPS) {
+                let bestParty = null;
+                let bestDeviation = Infinity;
+                for (const party of leftoverParties) {
+                    if (party.dps.length >= DPS_PER_PARTY) continue;
+                    const deviation = party.dpsSum;
+                    if (deviation < bestDeviation) {
+                        bestDeviation = deviation;
+                        bestParty = party;
+                    }
+                }
+                if (bestParty) {
+                    bestParty.dps.push(char);
+                    bestParty.dpsSum += char.power;
+                }
             }
 
-            const filledCount = bestRaids.filter(r => r.dps.length > 0).length;
-            updateAllViews();
-            saveContents();
-            logAction('auto_plan', `auto-assigned DPS into ${filledCount} raid(s) in "${current.name}".`);
-            showToast(`✅ Auto-assign complete! ${filledCount} raid(s) filled.`, 'success');
-            if (raidsContainer.offsetTop) {
-                window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
+            for (const char of leftoverBuffers) {
+                let bestParty = null;
+                let bestDeviation = Infinity;
+                for (const party of leftoverParties) {
+                    if (party.buffers.length >= BUFF_PER_PARTY) continue;
+                    const deviation = party.buffSum;
+                    if (deviation < bestDeviation) {
+                        bestDeviation = deviation;
+                        bestParty = party;
+                    }
+                }
+                if (bestParty) {
+                    bestParty.buffers.push(char);
+                    bestParty.buffSum += char.power;
+                }
             }
-        }, 'Auto Assign DPS', 'primary');
-    });
+
+            const hasContent = leftoverParties.some(p => p.dps.length > 0 || p.buffers.length > 0);
+            if (hasContent) {
+                raidBuckets.push(leftoverRaid);
+            }
+        }
+
+        if (raidBuckets.length === 0) {
+            showToast('No characters could be assigned!', 'warning');
+            return;
+        }
+
+        // --- Step 7: Build actual raid data ---
+        content.raids.length = 0;
+        content.raidCounter = 0;
+
+        for (const bucket of raidBuckets) {
+            content.raidCounter++;
+            const parties = [];
+
+            for (let pIdx = 0; pIdx < P; pIdx++) {
+                const slots = [null, null, null, null];
+                const partyData = bucket.parties[pIdx];
+
+                partyData.dps.sort((a, b) => b.power - a.power);
+                partyData.buffers.sort((a, b) => b.power - a.power);
+
+                for (let s = 0; s < Math.min(partyData.dps.length, 3); s++) {
+                    slots[s] = partyData.dps[s].id;
+                }
+                if (partyData.buffers.length > 0) {
+                    slots[3] = partyData.buffers[0].id;
+                }
+
+                parties.push({ slots });
+            }
+
+            content.raids.push({ id: content.raidCounter, size, parties });
+        }
+
+        const filledCount = raidBuckets.length;
+        const totalDpsAssigned = raidBuckets.reduce((sum, r) => sum + r.parties.reduce((s, p) => s + p.dps.length, 0), 0);
+        const totalBuffAssigned = raidBuckets.reduce((sum, r) => sum + r.parties.reduce((s, p) => s + p.buffers.length, 0), 0);
+
+        updateAllViews();
+        saveContents();
+        logAction('auto_plan', `auto-assigned ${totalDpsAssigned} DPS + ${totalBuffAssigned} buffers into ${filledCount} raid(s) in "${content.name}".`);
+        showToast(`✅ Auto-assign complete! ${filledCount} raid(s) — ${totalDpsAssigned} DPS + ${totalBuffAssigned} buffers assigned.`, 'success');
+        if (raidsContainer.offsetTop) {
+            window.scrollTo({ top: raidsContainer.offsetTop - 50, behavior: 'smooth' });
+        }
+    }
 
 
     raidsContainer.addEventListener('click', (e) => {
@@ -1540,7 +1882,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (!current || !current.raids || current.raids.length === 0) {
-            raidsContainer.innerHTML = '<div class="empty-raids-msg"><p>No raids yet. Click <strong>Add Raid</strong> or <strong>Auto assign DPS</strong> to get started.</p></div>';
+            raidsContainer.innerHTML = '<div class="empty-raids-msg"><p>No raids yet. Click <strong>Add Raid</strong> or <strong>Auto Assign</strong> to get started.</p></div>';
             return;
         }
 

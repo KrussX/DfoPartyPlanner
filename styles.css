@@ -1094,6 +1094,87 @@ input[type="number"] {
     border-top: 1px solid var(--border-light);
 }
 
+/* ---- AUTO ASSIGN MODAL ---- */
+.auto-assign-modal-card {
+    max-width: 480px;
+}
+
+.auto-assign-description {
+    font-size: 0.78rem !important;
+    color: var(--text-muted) !important;
+    margin-bottom: 0.5rem !important;
+    line-height: 1.45;
+}
+
+.auto-assign-parties-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.auto-assign-party-card {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--border);
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    background: var(--bg);
+}
+
+.auto-assign-party-card.party-red    { border-left-color: var(--accent-red); }
+.auto-assign-party-card.party-yellow { border-left-color: var(--accent-yellow); }
+.auto-assign-party-card.party-green  { border-left-color: var(--accent-green); }
+
+.auto-assign-party-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.4rem;
+}
+
+.auto-assign-party-card.party-red .auto-assign-party-title    { color: var(--accent-red); }
+.auto-assign-party-card.party-yellow .auto-assign-party-title { color: var(--accent-yellow); }
+.auto-assign-party-card.party-green .auto-assign-party-title  { color: var(--accent-green); }
+
+.auto-assign-party-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+}
+
+.auto-assign-party-fields .form-field {
+    gap: 0.15rem;
+}
+
+.auto-assign-party-fields .form-label {
+    font-size: 0.65rem;
+}
+
+.auto-assign-party-fields .form-input {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.78rem;
+}
+
+.auto-assign-info {
+    background: var(--bg);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    margin-top: 0.25rem;
+}
+
+.auto-assign-info p {
+    font-size: 0.72rem !important;
+    color: var(--text-muted) !important;
+    margin: 0 !important;
+    margin-bottom: 0.3rem !important;
+    line-height: 1.4;
+}
+
+.auto-assign-info p:last-child {
+    margin-bottom: 0 !important;
+}
+
 @keyframes fadeIn {
     to {
         opacity: 1;
