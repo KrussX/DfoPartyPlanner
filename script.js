@@ -1479,6 +1479,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const leftoverRaid = { parties: leftoverParties, raidAdvNames: new Set() };
 
             for (const char of leftoverDPS) {
+                // Check global club limit
+                const currentUsage = globalClubUsage.get(char.adv) || 0;
+                if (currentUsage >= globalLimit) continue;
+
+                // Check raid-level club uniqueness
+                if (leftoverRaid.raidAdvNames.has(char.adv)) continue;
+
                 let bestParty = null;
                 let bestDeviation = Infinity;
                 for (const party of leftoverParties) {
@@ -1492,10 +1499,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (bestParty) {
                     bestParty.dps.push(char);
                     bestParty.dpsSum += char.power;
+                    bestParty.advNames.add(char.adv);
+                    leftoverRaid.raidAdvNames.add(char.adv);
+                    globalClubUsage.set(char.adv, currentUsage + 1);
                 }
             }
 
             for (const char of leftoverBuffers) {
+                // Check global club limit
+                const currentUsage = globalClubUsage.get(char.adv) || 0;
+                if (currentUsage >= globalLimit) continue;
+
+                // Check raid-level club uniqueness
+                if (leftoverRaid.raidAdvNames.has(char.adv)) continue;
+
                 let bestParty = null;
                 let bestDeviation = Infinity;
                 for (const party of leftoverParties) {
@@ -1509,6 +1526,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (bestParty) {
                     bestParty.buffers.push(char);
                     bestParty.buffSum += char.power;
+                    bestParty.advNames.add(char.adv);
+                    leftoverRaid.raidAdvNames.add(char.adv);
+                    globalClubUsage.set(char.adv, currentUsage + 1);
                 }
             }
 
