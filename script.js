@@ -1909,6 +1909,7 @@ document.addEventListener('DOMContentLoaded', () => {
         current.raids.forEach((raid, rIndex) => {
             const raidBlock = document.createElement('div');
             raidBlock.className = 'raid-block';
+            raidBlock.dataset.raidId = raid.id;
 
             const colors = ['red', 'yellow', 'green'];
             const names = ['Red', 'Yellow', 'Green'];
@@ -2219,6 +2220,95 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // --- Drag Preview: Highlight valid/invalid raid blocks ---
+    function applyRaidDragPreview(charId, fromSlotId) {
+        const current = getActiveContent();
+        if (!current) return;
+
+        const charData = partyPlan.get(charId);
+        if (!charData) return;
+
+        const advName = charData.adventureName;
+        const isFromPool = fromSlotId === 'pool';
+
+        // Check global club limit (only relevant when dragging from pool)
+        let globalLimitReached = false;
+        if (isFromPool && advName) {
+            globalLimitReached = isGlobalAdventureNameLimitReached(advName, charId);
+        }
+
+        // Get the source raid ID (if dragging between raids)
+        const sourceMatch = fromSlotId === 'pool' ? null : fromSlotId.match(/raid-(\d+)/);
+        const sourceRaidId = sourceMatch ? parseInt(sourceMatch[1]) : null;
+
+        document.querySelectorAll('.raid-block').forEach(block => {
+            const raidId = parseInt(block.dataset.raidId);
+            const raid = current.raids.find(r => r.id === raidId);
+            if (!raid) return;
+
+            // Same raid as source — always valid (internal moves/swaps)
+            if (sourceRaidId === raidId) {
+                block.classList.add('raid-drop-valid');
+                return;
+            }
+
+            // Global limit reached from pool — all other raids invalid
+            if (globalLimitReached) {
+                block.classList.add('raid-drop-invalid');
+                return;
+            }
+
+            // Check if the explorer club already exists in this raid
+            if (advName) {
+                let clubConflict = false;
+                const conflictPartyIndices = [];
+                const conflictSlotIds = [];
+                raid.parties.forEach((party, pIdx) => {
+                    party.slots.forEach((slotCharId, sIdx) => {
+                        if (slotCharId && slotCharId !== charId) {
+                            const occupant = partyPlan.get(slotCharId);
+                            if (occupant && occupant.adventureName === advName) {
+                                clubConflict = true;
+                                if (!conflictPartyIndices.includes(pIdx)) conflictPartyIndices.push(pIdx);
+                                conflictSlotIds.push(`raid-${raid.id}-party-${pIdx}-slot-${sIdx}`);
+                            }
+                        }
+                    });
+                });
+
+                if (clubConflict) {
+                    block.classList.add('raid-drop-invalid');
+                    // Highlight the conflicting party, dim the others
+                    const partyBlocks = block.querySelectorAll('.party-block');
+                    partyBlocks.forEach((pb, idx) => {
+                        if (conflictPartyIndices.includes(idx)) {
+                            pb.classList.add('party-conflict-highlight');
+                        } else {
+                            pb.classList.add('party-dimmed');
+                        }
+                    });
+                    // Highlight the specific conflicting character slots
+                    conflictSlotIds.forEach(slotId => {
+                        const slotEl = block.querySelector(`[data-slot-id="${slotId}"]`);
+                        if (slotEl) slotEl.classList.add('slot-conflict-highlight');
+                    });
+                    return;
+                }
+            }
+
+            block.classList.add('raid-drop-valid');
+        });
+    }
+
+    function clearRaidDragPreview() {
+        document.querySelectorAll('.raid-drop-valid, .raid-drop-invalid').forEach(el => {
+            el.classList.remove('raid-drop-valid', 'raid-drop-invalid');
+        });
+        document.querySelectorAll('.party-conflict-highlight, .party-dimmed, .slot-conflict-highlight').forEach(el => {
+            el.classList.remove('party-conflict-highlight', 'party-dimmed', 'slot-conflict-highlight');
+        });
+    }
+
     // --- Drag and Drop Events ---
     document.addEventListener('dragstart', (e) => {
         const card = e.target.closest('.result-card');
@@ -2229,7 +2319,10 @@ document.addEventListener('DOMContentLoaded', () => {
         sourceSlotId = slotEl ? slotEl.dataset.slotId : 'pool';
 
         e.dataTransfer.effectAllowed = 'move';
-        setTimeout(() => card.classList.add('dragging'), 0);
+        setTimeout(() => {
+            card.classList.add('dragging');
+            applyRaidDragPreview(draggedCardId, sourceSlotId);
+        }, 0);
     });
 
     document.addEventListener('dragend', (e) => {
@@ -2239,6 +2332,7 @@ document.addEventListener('DOMContentLoaded', () => {
         document.querySelectorAll('.drag-over, .invalid').forEach(el => {
             el.classList.remove('drag-over', 'invalid');
         });
+        clearRaidDragPreview();
         draggedCardId = null;
         sourceSlotId = null;
     });

@@ -638,6 +638,49 @@ button {
     overflow: hidden;
     min-width: 0;
     width: 100%;
+    transition: border-color 0.2s, opacity 0.2s, box-shadow 0.2s;
+}
+
+.raid-block.raid-drop-valid {
+    border-color: var(--accent-green);
+    box-shadow: 0 0 0 1px var(--accent-green), 0 0 8px rgba(22, 163, 74, 0.15);
+}
+
+.raid-block.raid-drop-invalid {
+    border-color: var(--accent-red);
+}
+
+.raid-block.raid-drop-invalid .party-dimmed {
+    opacity: 0.25;
+    pointer-events: none;
+}
+
+.raid-block.raid-drop-invalid .party-conflict-highlight {
+    position: relative;
+    z-index: 1;
+}
+
+.raid-block.raid-drop-invalid .party-conflict-highlight::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px solid var(--accent-red);
+    border-radius: 2px;
+    box-shadow: 0 0 12px rgba(220, 38, 38, 0.4);
+    pointer-events: none;
+    z-index: 10;
+}
+
+.slot-conflict-highlight {
+    outline: 2px solid var(--accent-red);
+    outline-offset: -1px;
+    border-radius: 4px;
+    animation: conflictPulse 1s ease-in-out infinite;
+}
+
+@keyframes conflictPulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(220, 38, 38, 0.3); }
+    50% { box-shadow: 0 0 14px rgba(220, 38, 38, 0.7); }
 }
 
 .raid-remove-btn {
