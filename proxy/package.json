@@ -1,0 +1,12 @@
+{
+  "name": "dfo-cors-proxy",
+  "version": "1.0.0",
+  "description": "Lightweight CORS proxy for DFO Gang API (zero dependencies)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

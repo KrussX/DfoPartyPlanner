@@ -2,6 +2,9 @@
  * DFO Party Planner - Logic
  * Collaborative via Firebase Firestore.
  */
+
+// CORS Proxy URL — change this to your deployed proxy URL in production
+const API_PROXY_URL = 'http://localhost:3001';
 document.addEventListener('DOMContentLoaded', () => {
     // --- Firebase Init ---
     firebase.initializeApp(firebaseConfig);
@@ -2525,7 +2528,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchResults.innerHTML = '';
 
         try {
-            const response = await fetch('https://api.dfogang.com/search_explorer', {
+            const response = await fetch(`${API_PROXY_URL}/api/search_explorer`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -2616,7 +2619,7 @@ document.addEventListener('DOMContentLoaded', () => {
             idx++;
             refreshScoresBtn.textContent = `⏳ ${idx}/${clubNames.size}`;
             try {
-                const response = await fetch('https://api.dfogang.com/search_explorer', {
+                const response = await fetch(`${API_PROXY_URL}/api/search_explorer`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
