@@ -2504,6 +2504,94 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Add Character Manually ---
+    const addCharBtn = document.getElementById('add-char-btn');
+    const addCharModal = document.getElementById('add-char-modal');
+    const addCharForm = document.getElementById('add-char-form');
+    const addCharCancel = document.getElementById('add-char-cancel');
+
+    if (addCharBtn) {
+        addCharBtn.addEventListener('click', () => {
+            addCharModal.style.display = 'flex';
+            addCharForm.reset();
+            document.getElementById('add-char-name').focus();
+        });
+    }
+
+    if (addCharCancel) {
+        addCharCancel.addEventListener('click', () => {
+            addCharModal.style.display = 'none';
+        });
+    }
+
+    if (addCharModal) {
+        addCharModal.addEventListener('click', (e) => {
+            if (e.target === addCharModal) addCharModal.style.display = 'none';
+        });
+    }
+
+    if (addCharForm) {
+        addCharForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            const charName = document.getElementById('add-char-name').value.trim();
+            const clubName = document.getElementById('add-char-club').value.trim();
+            const className = document.getElementById('add-char-class').value.trim();
+            const charType = document.getElementById('add-char-type').value;
+            const scoreRaw = document.getElementById('add-char-score').value;
+
+            // Validate all fields
+            if (!charName || !clubName || !className || !scoreRaw) {
+                showToast('All fields are required.', 'error');
+                return;
+            }
+
+            const score = Number(scoreRaw) * 1_000_000;
+
+            // Check for duplicate (same character name + same explorer club)
+            let duplicate = false;
+            partyPlan.forEach((charData) => {
+                if (charData.characterName.toLowerCase() === charName.toLowerCase() &&
+                    charData.adventureName.toLowerCase() === clubName.toLowerCase()) {
+                    duplicate = true;
+                }
+            });
+
+            if (duplicate) {
+                showToast(`Character "${charName}" from club "${clubName}" already exists in the Waiting Room.`, 'error');
+                return;
+            }
+
+            // Build character object matching the API structure
+            const charId = 'manual_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+            const charData = {
+                characterId: charId,
+                characterName: charName,
+                adventureName: clubName,
+                jobGrowName: className,
+                jobName: className,
+                fame: 0
+            };
+
+            if (charType === 'buffer') {
+                charData.total_buff_score = score;
+                charData.dps = null;
+            } else {
+                charData.total_buff_score = null;
+                charData.dps = { normal: score };
+            }
+
+            partyPlan.set(charId, charData);
+            updateAllViews();
+            savePartyPlan();
+            saveContents();
+
+            logAction('add_manual', `manually added ${charName} (${className}) to Waiting Room.`);
+            showToast(`Added "${charName}" to the Waiting Room.`, 'success');
+            addCharModal.style.display = 'none';
+        });
+    }
+
     searchForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 

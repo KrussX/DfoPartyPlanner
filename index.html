@@ -64,7 +64,8 @@
                 <button type="button" class="btn btn-sm admin-only" id="manage-users-btn">Manage Users</button>
                 <button type="button" class="btn btn-sm" id="copy-link-btn">Copy Room link</button>
                 <button type="button" class="btn btn-sm" id="theme-toggle-btn">🌙 Dark</button>
-                <button type="button" class="btn btn-sm" id="sidebar-toggle-btn" title="Toggle sidebar">◀ Hide Panel</button>
+                <button type="button" class="btn btn-sm" id="sidebar-toggle-btn" title="Toggle sidebar">◀ Hide
+                    Panel</button>
             </div>
         </header>
 
@@ -97,7 +98,12 @@
                 <div class="panel-section">
                     <div class="section-header">
                         <span class="section-title">Waiting Room</span>
-                        <span class="pool-count" id="pool-count"></span>
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <span class="pool-count" id="pool-count"></span>
+                            <button type="button" class="btn btn-sm btn-primary" id="add-char-btn"
+                                title="Add Character Manually"
+                                style="padding: 0.1rem 0.45rem; font-size: 0.7rem; line-height: 1.2;">+</button>
+                        </div>
                     </div>
                     <div id="club-summary-container" class="club-summary" style="display: none;">
                         <div id="club-summary-list"></div>
@@ -223,7 +229,8 @@
     <div id="auto-assign-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content auto-assign-modal-card">
             <h3 id="auto-assign-modal-title">Auto Assign Configuration</h3>
-            <p class="auto-assign-description">Set target DPS and buff scores for each party. The algorithm will distribute characters to match these targets as closely as possible.</p>
+            <p class="auto-assign-description">Set target DPS and buff scores for each party. The algorithm will
+                distribute characters to match these targets as closely as possible.</p>
             <form id="auto-assign-form" class="content-form">
                 <div id="auto-assign-parties-config">
                     <!-- Dynamically populated per-party fields by JS -->
@@ -241,7 +248,47 @@
         </div>
     </div>
 
-    <script src="script.js?v=24"></script>
+    <!-- ADD CHARACTER MODAL -->
+    <div id="add-char-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content content-modal-card">
+            <h3>Add Character Manually</h3>
+            <form id="add-char-form" class="content-form">
+                <div class="form-field">
+                    <label class="form-label">Character Name</label>
+                    <input type="text" id="add-char-name" class="form-input" required autocomplete="off"
+                        placeholder="e.g. MyCharacter">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Explorer Club</label>
+                    <input type="text" id="add-char-club" class="form-input" required autocomplete="off"
+                        placeholder="e.g. MyClub">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Class</label>
+                    <input type="text" id="add-char-class" class="form-input" required autocomplete="off"
+                        placeholder="e.g. Crusader">
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Type</label>
+                    <select id="add-char-type" class="form-select" required>
+                        <option value="dps">DPS</option>
+                        <option value="buffer">Buffer</option>
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label class="form-label">Score <span class="form-hint">(in millions, e.g. 20)</span></label>
+                    <input type="number" id="add-char-score" class="form-input" required min="0" step="any"
+                        placeholder="e.g. 20">
+                </div>
+                <div class="modal-actions content-form-actions">
+                    <button type="button" class="btn" id="add-char-cancel">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="add-char-submit">Add Character</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="script.js?v=25"></script>
 </body>
 
 </html>
