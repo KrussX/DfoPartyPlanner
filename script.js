@@ -3,8 +3,8 @@
  * Collaborative via Firebase Firestore.
  */
 
-// CORS Proxy URL — change this to your deployed proxy URL in production
-const API_PROXY_URL = 'http://localhost:3001';
+// CORS Proxy URL
+const API_PROXY_URL = 'https://dfo-party-planner-proxy.zerii6582.workers.dev';
 document.addEventListener('DOMContentLoaded', () => {
     // --- Firebase Init ---
     firebase.initializeApp(firebaseConfig);
@@ -599,13 +599,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const copyContent = JSON.parse(JSON.stringify(current));
             copyContent.id = 'content_' + Date.now();
             copyContent.name = (copyContent.name || 'Content') + ' (Copy)';
-            
+
             contents.push(copyContent);
             activeContentId = copyContent.id;
             localStorage.setItem('dfoActiveContentId', activeContentId);
-            
+
             logAction('duplicate_content', `duplicated content "${current.name}" as "${copyContent.name}".`);
-            
+
             saveContents();
             renderContentSelect();
             updateAdminUI();
@@ -1898,7 +1898,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderRaids() {
         raidsContainer.innerHTML = '';
         const current = getActiveContent();
-        
+
         raidsContainer.className = 'raids-container';
         if (current && current.partySize) {
             raidsContainer.classList.add(`parties-${current.partySize}`);
