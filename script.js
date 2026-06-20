@@ -4,7 +4,7 @@
  */
 
 // CORS Proxy URL
-const API_PROXY_URL = 'http://localhost:3001';
+const API_PROXY_URL = 'https://dfopartyplanner.onrender.com';
 document.addEventListener('DOMContentLoaded', () => {
     // --- Firebase Init ---
     firebase.initializeApp(firebaseConfig);
