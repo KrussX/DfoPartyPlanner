@@ -1,19 +1,21 @@
 /**
- * DFO Gang Playwright Proxy Server
+ * DFO Gang Playwright Proxy Server (Optimized)
  *
  * Replaces the Cloudflare Workers proxy by using a real browser (Playwright)
  * to navigate to dfogang.com and intercept the API responses.
  *
- * The website makes internal API calls that are blocked for external access,
- * but since we load the real page in a real browser, the calls go through
- * normally and we capture the responses via network interception.
+ * Optimizations:
+ *   - Blocks images, CSS, fonts, ads, and analytics (we only need the API call)
+ *   - Resolves IMMEDIATELY when the API response is captured (no waiting for full page load)
+ *   - Reuses a persistent browser context with cookies/sessions across requests
+ *   - Request queue prevents Cloudflare rate-limiting from concurrent tabs
  *
  * Usage:
  *   npm install
  *   npm run install-browser
  *   npm start
  *
- * Then point your front-end API_PROXY_URL to http://localhost:3000
+ * Then point your front-end API_PROXY_URL to http://localhost:3001
  */
 
 const express = require('express');
@@ -33,31 +35,60 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-// --- Browser Pool ---
-// We keep a single persistent browser instance to avoid the overhead
-// of launching a new browser for every request (~2-3s saved per call).
+// --- Browser + Persistent Context ---
+// We reuse a single browser AND context (keeps cookies/session alive,
+// so Cloudflare challenges only need to be solved once).
 let browser = null;
+let persistentContext = null;
 
 async function getBrowser() {
     if (!browser || !browser.isConnected()) {
         console.log('[Browser] Launching Chromium...');
         browser = await chromium.launch({
-            headless: true, // Set to false to see the browser for debugging
+            headless: true, // Set to false for debugging
+        });
+        persistentContext = await browser.newContext({
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            viewport: { width: 1280, height: 720 },
         });
         console.log('[Browser] Ready.');
     }
-    return browser;
+    return { browser, context: persistentContext };
 }
+
+// --- Request Queue ---
+// Process one search at a time to avoid rate-limiting and resource contention.
+let requestQueue = Promise.resolve();
+
+function enqueue(fn) {
+    const p = requestQueue.then(fn, fn);
+    requestQueue = p.catch(() => {}); // prevent unhandled rejection chain
+    return p;
+}
+
+// --- Resource Blocking ---
+// Block everything except documents and XHR/fetch — massive speed boost.
+const BLOCKED_TYPES = new Set([
+    'image', 'stylesheet', 'font', 'media', 'texttrack', 'eventsource',
+    'manifest', 'other',
+]);
+
+const BLOCKED_DOMAINS = [
+    'googlesyndication.com',
+    'googletagmanager.com',
+    'google-analytics.com',
+    'doubleclick.net',
+    'adservice.google',
+    'facebook.net',
+    'fbcdn.net',
+];
 
 // --- Health Check ---
 app.get('/', (req, res) => {
-    res.json({ status: 'ok', engine: 'playwright' });
+    res.json({ status: 'ok', engine: 'playwright-optimized' });
 });
 
 // --- Main Endpoint: POST /api/search_explorer ---
-// Matches the same contract as the old Cloudflare proxy.
-// Body: { name: string, server: string, average_set_dmg?: bool, exact_match?: bool }
-// Returns: { results: [...] }
 app.post('/api/search_explorer', async (req, res) => {
     const { name, server = 'explorer', exact_match = true } = req.body;
 
@@ -65,152 +96,98 @@ app.post('/api/search_explorer', async (req, res) => {
         return res.status(400).json({ error: 'Missing "name" in request body' });
     }
 
+    const startTime = Date.now();
     console.log(`[Search] Looking up "${name}" (server=${server}, exact=${exact_match})`);
 
-    let context = null;
+    // Queue the request so we don't overwhelm the browser
     try {
-        const b = await getBrowser();
-        context = await b.newContext({
-            // Mimic a normal browser to avoid bot detection
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            viewport: { width: 1280, height: 720 },
+        const result = await enqueue(() => performSearch(name, server, exact_match));
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[Search] ✅ "${name}" → ${(result.results || []).length} results in ${elapsed}s`);
+        return res.json(result);
+    } catch (err) {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.error(`[Search] ❌ "${name}" failed in ${elapsed}s:`, err.message);
+        return res.status(502).json({ error: `Proxy request failed: ${err.message}` });
+    }
+});
+
+async function performSearch(name, server, exact_match) {
+    const { context } = await getBrowser();
+    const page = await context.newPage();
+
+    try {
+        // Block unnecessary resources for speed
+        await page.route('**/*', (route) => {
+            const req = route.request();
+            const type = req.resourceType();
+            const url = req.url();
+
+            // Block heavy resource types
+            if (BLOCKED_TYPES.has(type)) {
+                return route.abort();
+            }
+
+            // Block ad/analytics domains
+            if (BLOCKED_DOMAINS.some(domain => url.includes(domain))) {
+                return route.abort();
+            }
+
+            return route.continue();
         });
-        const page = await context.newPage();
 
-        // Set up network interception to capture the API response.
-        // dfogang.com is a Next.js app that fetches data via internal routes.
-        // We look for the response that contains character search results.
-        let capturedData = null;
+        // Create a promise that resolves as soon as we capture the API response.
+        // This way we don't wait for the full page — we bail out early.
+        let resolveCapture, rejectCapture;
+        const capturePromise = new Promise((resolve, reject) => {
+            resolveCapture = resolve;
+            rejectCapture = reject;
+        });
 
+        // Listen for the API response
         page.on('response', async (response) => {
             const url = response.url();
 
-            // The site makes requests to api.dfogang.com or its own Next.js
-            // data routes. We capture any response containing search results.
-            if (url.includes('api.dfogang.com') || url.includes('search_explorer')) {
+            // Primary: direct API call to api.dfogang.com
+            if (url.includes('api.dfogang.com') && url.includes('search_explorer')) {
                 try {
                     const contentType = response.headers()['content-type'] || '';
                     if (contentType.includes('application/json')) {
                         const json = await response.json();
                         if (json.results || Array.isArray(json)) {
-                            capturedData = json;
-                            console.log(`[Search] Captured API response from: ${url} (${(json.results || json).length} results)`);
+                            resolveCapture(json);
                         }
                     }
-                } catch (e) {
-                    // Not JSON or parsing failed, ignore
-                }
+                } catch (e) { /* ignore parse errors */ }
             }
         });
 
-        // Also capture from Next.js RSC data (the site uses server components)
-        // which may embed the data in the page payload
-        page.on('response', async (response) => {
-            const url = response.url();
-            // Next.js data fetches often use __next_data or RSC format
-            if (capturedData) return; // Already captured
-
-            try {
-                if (url.includes('dfogang.com') && url.includes('?server=')) {
-                    const contentType = response.headers()['content-type'] || '';
-                    if (contentType.includes('text/x-component') || contentType.includes('application/json')) {
-                        const text = await response.text();
-                        // Try to extract JSON results from RSC payload
-                        const match = text.match(/"results"\s*:\s*(\[[\s\S]*?\])/);
-                        if (match) {
-                            try {
-                                const results = JSON.parse(match[1]);
-                                capturedData = { results };
-                                console.log(`[Search] Captured RSC data (${results.length} results)`);
-                            } catch (e) { /* not valid JSON array */ }
-                        }
-                    }
-                }
-            } catch (e) { /* ignore */ }
-        });
-
-        // Build the URL - the website uses query params:
-        // dfogang.com/?server=explorer&name=<name>&exact=true
-        const params = new URLSearchParams({
-            server,
-            name,
-            view: 'card',
-        });
+        // Build URL
+        const params = new URLSearchParams({ server, name, view: 'card' });
         if (exact_match) params.set('exact', 'true');
-
         const targetUrl = `https://dfogang.com/?${params.toString()}`;
-        console.log(`[Search] Navigating to: ${targetUrl}`);
 
-        // Navigate and wait for network to settle
-        await page.goto(targetUrl, {
-            waitUntil: 'networkidle',
-            timeout: 30000,
+        // Navigate — use 'commit' which resolves as soon as the server responds
+        // (doesn't wait for all sub-resources to load)
+        const gotoPromise = page.goto(targetUrl, {
+            waitUntil: 'commit',
+            timeout: 20000,
         });
 
-        // If we haven't captured the API response yet, wait a bit more
-        // (some requests may fire after initial load)
-        if (!capturedData) {
-            console.log('[Search] Waiting for additional network activity...');
-            await page.waitForTimeout(3000);
-        }
+        // Race: resolve as soon as either the API response is captured
+        // or we hit a timeout
+        const timeoutPromise = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Timed out waiting for API response (15s)')), 15000)
+        );
 
-        // If still no API response captured, try to extract data from the DOM
-        if (!capturedData) {
-            console.log('[Search] No API response captured, attempting DOM extraction...');
-            capturedData = await page.evaluate(() => {
-                // The Next.js app stores data in __NEXT_DATA__ or similar
-                const nextData = document.getElementById('__NEXT_DATA__');
-                if (nextData) {
-                    try {
-                        const parsed = JSON.parse(nextData.textContent);
-                        if (parsed?.props?.pageProps?.results) {
-                            return { results: parsed.props.pageProps.results };
-                        }
-                    } catch (e) { /* ignore */ }
-                }
+        const result = await Promise.race([capturePromise, timeoutPromise]);
+        return result;
 
-                // Try window.__next_f (RSC flight data)
-                if (window.__next_f) {
-                    const allText = window.__next_f
-                        .filter(item => typeof item[1] === 'string')
-                        .map(item => item[1])
-                        .join('');
-
-                    // Look for results array in the flight data
-                    const match = allText.match(/"results"\s*:\s*(\[[\s\S]*?\](?=\s*[,}]))/);
-                    if (match) {
-                        try {
-                            return { results: JSON.parse(match[1]) };
-                        } catch (e) { /* ignore */ }
-                    }
-                }
-
-                return null;
-            });
-        }
-
-        await context.close();
-        context = null;
-
-        if (capturedData) {
-            console.log(`[Search] ✅ Returning ${(capturedData.results || []).length} results`);
-            return res.json(capturedData);
-        } else {
-            console.log('[Search] ❌ No data captured');
-            return res.status(502).json({
-                error: 'Could not capture API response from dfogang.com',
-                hint: 'The site may have changed its structure or is blocking automated access.',
-            });
-        }
-
-    } catch (err) {
-        console.error('[Search] Error:', err.message);
-        if (context) {
-            try { await context.close(); } catch (e) { /* ignore */ }
-        }
-        return res.status(502).json({ error: `Proxy request failed: ${err.message}` });
+    } finally {
+        // Always close the page to free memory
+        await page.close().catch(() => {});
     }
-});
+}
 
 // --- Graceful Shutdown ---
 process.on('SIGINT', async () => {
@@ -226,7 +203,7 @@ process.on('SIGTERM', async () => {
 
 // --- Start ---
 app.listen(PORT, async () => {
-    console.log(`\n🚀 DFO Gang Playwright Proxy running on http://localhost:${PORT}`);
+    console.log(`\n🚀 DFO Gang Playwright Proxy (Optimized) running on http://localhost:${PORT}`);
     console.log(`   Point your front-end API_PROXY_URL to this address.\n`);
     // Pre-launch browser so first request is fast
     await getBrowser();
