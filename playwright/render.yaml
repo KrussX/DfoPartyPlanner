@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: dfo-playwright-proxy
+    runtime: docker
+    plan: starter
+    rootDir: playwright
+    envVars:
+      - key: PORT
+        value: 3001

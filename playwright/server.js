@@ -46,6 +46,12 @@ async function getBrowser() {
         console.log('[Browser] Launching Chromium...');
         browser = await chromium.launch({
             headless: true, // Set to false for debugging
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',  // Use /tmp instead of /dev/shm (often too small in containers)
+                '--disable-gpu',
+            ],
         });
         persistentContext = await browser.newContext({
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
